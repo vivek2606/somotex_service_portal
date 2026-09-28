@@ -1,9 +1,12 @@
-import type { ServiceDB } from './db';
+import { newId, type ServiceDB } from './db';
 import type { AppSettings } from './settings';
 import { createComplaint, issueToComplaint, receiveStock, setStatus, updateJobDetails } from './service';
 import type { InventoryItem } from './types';
 
 type NewItem = Omit<InventoryItem, 'id' | 'stock' | 'active'>;
+
+/** Starter items get fixed ids so every device seeds the same records. */
+export const starterItemId = (sku: string) => `starter-${sku.toLowerCase()}`;
 
 /** Starter catalogue of refrigerants, gases and common spares (zero stock). */
 export const STARTER_ITEMS: NewItem[] = [
@@ -89,22 +92,20 @@ export const STARTER_ITEMS: NewItem[] = [
 
 export async function seedIfEmpty(db: ServiceDB) {
   if ((await db.items.count()) > 0) return;
-  await db.items.bulkAdd(STARTER_ITEMS.map((i) => ({ ...i, stock: 0, active: true })));
+  await db.items.bulkAdd(STARTER_ITEMS.map((i) => ({ ...i, id: starterItemId(i.sku), stock: 0, active: true })));
 }
 
 /** Demo technicians, customers, stock and jobs so the team can explore. */
 export async function loadDemoData(db: ServiceDB, settings: AppSettings) {
   await seedIfEmpty(db);
   const s = { ...settings, currentUser: 'Demo' };
-  const [t1, t2] = (await db.technicians.bulkAdd(
-    [
-      { name: 'Chikondi Banda', phone: '0888 000 001', skills: 'AC, VRF, refrigeration', active: true },
-      { name: 'Mphatso Phiri', phone: '0999 000 002', skills: 'Fridges, washing machines, cookers', active: true },
-    ],
-    { allKeys: true },
-  )) as number[];
+  const [t1, t2] = [newId(), newId()];
+  await db.technicians.bulkAdd([
+    { id: t1, name: 'Chikondi Banda', phone: '0888 000 001', skills: 'AC, VRF, refrigeration', active: true },
+    { id: t2, name: 'Mphatso Phiri', phone: '0999 000 002', skills: 'Fridges, washing machines, cookers', active: true },
+  ]);
 
-  const sku = async (code: string) => (await db.items.where('sku').equals(code).first())!.id!;
+  const sku = async (code: string) => (await db.items.where('sku').equals(code).first())!.id;
   for (const [code, qty] of [
     ['REF-R32', 40],
     ['REF-R410A', 30],

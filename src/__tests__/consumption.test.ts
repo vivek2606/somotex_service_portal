@@ -21,12 +21,12 @@ const splitAc: Equipment = {
 };
 
 const r32: InventoryItem = {
-  id: 1, sku: 'R32', name: 'R32', type: 'Refrigerant', unit: 'kg', refrigerant: 'R32',
+  id: '1', sku: 'R32', name: 'R32', type: 'Refrigerant', unit: 'kg', refrigerant: 'R32',
   stock: 10, reorderLevel: 1, unitCost: 0, active: true,
 };
-const r22: InventoryItem = { ...r32, id: 2, sku: 'R22', name: 'R22', refrigerant: 'R22' };
+const r22: InventoryItem = { ...r32, id: '2', sku: 'R22', name: 'R22', refrigerant: 'R22' };
 const oxygen: InventoryItem = {
-  id: 3, sku: 'O2', name: 'Oxygen', type: 'Brazing Gas', unit: 'm³',
+  id: '3', sku: 'O2', name: 'Oxygen', type: 'Brazing Gas', unit: 'm³',
   stock: 10, reorderLevel: 1, unitCost: 0, active: true, norm: { perJob: 0.05, perJoint: 0.02 },
 };
 
@@ -87,14 +87,14 @@ describe('evaluateJob', () => {
 
   it('flags repeat charging on the same unit within the window', () => {
     const alerts = evaluateJob(job({ jobType: 'Gas Top-up' }), [{ item: r32, qty: 0.2 }], DEFAULT_NORMS, [
-      { complaintId: 9, ticketNo: 'SMX-2026-00009', at: '2026-04-15T00:00:00Z' },
+      { complaintId: '9', ticketNo: 'SMX-2026-00009', at: '2026-04-15T00:00:00Z' },
     ]);
     expect(alerts.find((a) => a.code === 'repeat-charge')?.severity).toBe('warning');
   });
 
   it('ignores charges outside the repeat window', () => {
     const alerts = evaluateJob(job({ jobType: 'Gas Top-up' }), [{ item: r32, qty: 0.2 }], DEFAULT_NORMS, [
-      { complaintId: 9, ticketNo: 'OLD', at: '2025-01-01T00:00:00Z' },
+      { complaintId: '9', ticketNo: 'OLD', at: '2025-01-01T00:00:00Z' },
     ]);
     expect(alerts.find((a) => a.code === 'repeat-charge')).toBeUndefined();
   });
@@ -110,22 +110,22 @@ describe('evaluateJob', () => {
 describe('technicianTrends', () => {
   it('flags a technician who is consistently over', () => {
     const trends = technicianTrends([
-      { technicianId: 1, expectedG: 1000, actualG: 1120 },
-      { technicianId: 1, expectedG: 1000, actualG: 1130 },
-      { technicianId: 1, expectedG: 1000, actualG: 1300 },
-      { technicianId: 2, expectedG: 1000, actualG: 1000 },
+      { technicianId: '1', expectedG: 1000, actualG: 1120 },
+      { technicianId: '1', expectedG: 1000, actualG: 1130 },
+      { technicianId: '1', expectedG: 1000, actualG: 1300 },
+      { technicianId: '2', expectedG: 1000, actualG: 1000 },
     ]);
-    expect(trends[0]).toMatchObject({ technicianId: 1, jobs: 3, flagged: true });
-    expect(trends[1]).toMatchObject({ technicianId: 2, flagged: false });
+    expect(trends[0]).toMatchObject({ technicianId: '1', jobs: 3, flagged: true });
+    expect(trends[1]).toMatchObject({ technicianId: '2', flagged: false });
   });
 });
 
 describe('brazing methods', () => {
   const acetylene: InventoryItem = {
-    id: 4, sku: 'C2H2', name: 'Acetylene', type: 'Brazing Gas', unit: 'kg', brazingMethod: 'Oxy-Acetylene',
+    id: '4', sku: 'C2H2', name: 'Acetylene', type: 'Brazing Gas', unit: 'kg', brazingMethod: 'Oxy-Acetylene',
     stock: 5, reorderLevel: 1, unitCost: 0, active: true, norm: { perJob: 0.03, perJoint: 0.015 },
   };
-  const lpg: InventoryItem = { ...acetylene, id: 5, sku: 'LPG', name: 'LPG / Butane', brazingMethod: 'LPG / Butane', norm: { perJob: 0.03, perJoint: 0.025 } };
+  const lpg: InventoryItem = { ...acetylene, id: '5', sku: 'LPG', name: 'LPG / Butane', brazingMethod: 'LPG / Butane', norm: { perJob: 0.03, perJoint: 0.025 } };
 
   it('budgets the gas of the method used', () => {
     expect(evaluateJob(job({ brazingMethod: 'LPG / Butane', brazedJoints: 4 }), [{ item: lpg, qty: 0.13 }])).toEqual([]);
@@ -140,11 +140,11 @@ describe('brazing methods', () => {
 
 describe('nitrogen purging and MAPP', () => {
   const n2: InventoryItem = {
-    id: 6, sku: 'N2', name: 'Nitrogen', type: 'Nitrogen', unit: 'm³', stock: 10, reorderLevel: 1, unitCost: 0, active: true,
+    id: '6', sku: 'N2', name: 'Nitrogen', type: 'Nitrogen', unit: 'm³', stock: 10, reorderLevel: 1, unitCost: 0, active: true,
     norm: { perJob: 0.05, perJoint: 0.03, perPressureTest: 0.3 },
   };
   const mapp: InventoryItem = {
-    id: 7, sku: 'MAPP', name: 'MAPP', type: 'Brazing Gas', unit: 'kg', brazingMethod: 'MAPP', stock: 5, reorderLevel: 1, unitCost: 0, active: true,
+    id: '7', sku: 'MAPP', name: 'MAPP', type: 'Brazing Gas', unit: 'kg', brazingMethod: 'MAPP', stock: 5, reorderLevel: 1, unitCost: 0, active: true,
     norm: { perJob: 0.02, perJoint: 0.02 },
   };
 

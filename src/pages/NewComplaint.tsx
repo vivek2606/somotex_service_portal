@@ -1,11 +1,11 @@
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useDeferredValue, useMemo, useState, type FormEvent } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Questionnaire, SuggestionPanel } from '../components/Diagnosis';
 import { useSettings } from '../components/SettingsContext';
-import { useAction } from '../components/ui';
+import { fmtDateTime, useAction } from '../components/ui';
 import { db } from '../db/db';
-import { confirmedCauseCounts, createComplaint } from '../db/service';
+import { addLog, confirmedCauseCounts, createComplaint, OPEN_STATUSES } from '../db/service';
 import type {
   CapacityUnit,
   Complaint,
@@ -44,9 +44,7 @@ export default function NewComplaint() {
   const [params] = useSearchParams();
   const { run, busy } = useAction();
 
-  const [customerId, setCustomerId] = useState<number | undefined>(
-    params.get('customer') ? Number(params.get('customer')) : undefined,
-  );
+  const [customerId, setCustomerId] = useState<string | undefined>(params.get('customer') ?? undefined);
   const [cust, setCust] = useState(blankCustomer);
   const [search, setSearch] = useState('');
   const deferredSearch = useDeferredValue(search);
@@ -67,7 +65,7 @@ export default function NewComplaint() {
   const [answers, setAnswers] = useState<Answers>({});
   const [priority, setPriority] = useState<Priority | ''>('');
   const [preferredVisit, setPreferredVisit] = useState('');
-  const [technicianId, setTechnicianId] = useState<number | ''>('');
+  const [technicianId, setTechnicianId] = useState<string>('');
 
   const selectedCustomer = useLiveQuery(() => (customerId ? db.customers.get(customerId) : undefined), [customerId]);
   const matches = useLiveQuery(async () => {
@@ -94,6 +92,36 @@ export default function NewComplaint() {
   }, [customerId]);
   const technicians = useLiveQuery(() => db.technicians.filter((t) => t.active).toArray(), []);
   const confirmed = useLiveQuery(() => confirmedCauseCounts(db), []);
+  const [allowDuplicate, setAllowDuplicate] = useState(false);
+
+  // Warn before a second complaint is opened for the same customer or unit.
+  const phoneDigits = useDeferredValue((selectedCustomer?.phone ?? cust.phone).replace(/\D/g, ''));
+  const serial = useDeferredValue(eq.serialNo.trim().toLowerCase());
+  const matches2 = useLiveQuery(async () => {
+    const phoneKey = phoneDigits.length >= 7 ? phoneDigits.slice(-9) : '';
+    if (!customerId && !phoneKey && serial.length < 3) return { open: [], recent: [] };
+    const open = await db.complaints.where('status').anyOf(OPEN_STATUSES).toArray();
+    const custIds = new Set(open.map((c) => c.customerId));
+    const customers = new Map((await db.customers.bulkGet([...custIds])).filter(Boolean).map((c) => [c!.id, c!]));
+    const sameUnit = (c: Complaint) => serial.length >= 3 && c.equipment.serialNo.trim().toLowerCase() === serial;
+    const sameCustomer = (c: Complaint) =>
+      (customerId && c.customerId === customerId) ||
+      (phoneKey && (customers.get(c.customerId)?.phone.replace(/\D/g, '') ?? '').endsWith(phoneKey));
+    const openMatches = open
+      .filter((c) => sameUnit(c) || sameCustomer(c))
+      .map((c) => ({ c, customer: customers.get(c.customerId), sameUnit: sameUnit(c) }));
+    // Same unit closed recently: likely a repeat visit (rework).
+    const since = new Date(Date.now() - 30 * 86400000).toISOString();
+    const recent =
+      serial.length >= 3
+        ? (await db.complaints.where('equipment.serialNo').equals(eq.serialNo.trim()).toArray()).filter(
+            (c) => c.status === 'Closed' && (c.closedAt ?? '') >= since,
+          )
+        : [];
+    return { open: openMatches, recent };
+  }, [customerId, phoneDigits, serial]);
+  const duplicates = matches2?.open ?? [];
+  const recentVisits = matches2?.recent ?? [];
 
   const customerText = `${complaintType} ${statement} ${description} ${Object.values(answers).join(' ')}`;
   const deferredText = useDeferredValue(customerText);
@@ -118,6 +146,9 @@ export default function NewComplaint() {
     e.preventDefault();
     run(async () => {
       if (!customerId && (!cust.name.trim() || !cust.phone.trim())) throw new Error('Enter the customer name and phone');
+      if (duplicates.length && !allowDuplicate) {
+        throw new Error(`${duplicates[0].c.ticketNo} is already open for this customer or unit. Open it instead, or tick the box to confirm this is a separate problem.`);
+      }
       const id = await createComplaint(db, settings, {
         customerId,
         customer: customerId ? undefined : { ...cust, name: cust.name.trim(), phone: cust.phone.trim() },
@@ -136,6 +167,12 @@ export default function NewComplaint() {
           suggested: diagnosis.suggestions.map((s) => ({ causeId: s.cause.id, likelihood: s.likelihood })),
         },
       });
+      if (duplicates.length) {
+        await addLog(db, id, 'note', `Registered although ${duplicates.map((d) => d.c.ticketNo).join(', ')} ${duplicates.length === 1 ? 'is' : 'are'} open for the same customer or unit`, settings);
+      }
+      if (recentVisits.length) {
+        await addLog(db, id, 'note', `Repeat visit: this unit was closed under ${recentVisits.map((c) => c.ticketNo).join(', ')} within the last 30 days`, settings);
+      }
       navigate(`/complaints/${id}`, { replace: true });
     }, 'Complaint registered');
   };
@@ -410,6 +447,37 @@ export default function NewComplaint() {
             <SuggestionPanel diagnosis={diagnosis} />
           </fieldset>
 
+          {(duplicates.length > 0 || recentVisits.length > 0) && (
+            <fieldset style={{ borderColor: 'var(--warn)' }}>
+              <legend>Check before registering</legend>
+              {duplicates.map(({ c, customer, sameUnit }) => (
+                <div key={c.id} className="alert-box" style={{ marginBottom: 8 }}>
+                  <strong>
+                    <Link to={`/complaints/${c.id}`}>{c.ticketNo}</Link> is already open
+                  </strong>{' '}
+                  for {sameUnit ? 'this unit' : 'this customer'} ({customer?.name}): {c.equipment.brand} {c.equipment.category} · {c.complaintType} · {c.status}
+                  <div className="small">
+                    Logged {fmtDateTime(c.createdAt)} by {c.loggedBy}
+                    {c.loggedByEmail && ` (${c.loggedByEmail})`}
+                  </div>
+                </div>
+              ))}
+              {recentVisits.map((c) => (
+                <div key={c.id} className="alert-box info" style={{ marginBottom: 8 }}>
+                  <strong>Repeat visit?</strong> This unit was closed under <Link to={`/complaints/${c.id}`}>{c.ticketNo}</Link> on{' '}
+                  {fmtDateTime(c.closedAt)} by {c.closedBy ?? '—'}
+                  {c.closedByEmail && ` (${c.closedByEmail})`}. Consider re-opening it instead if it's the same fault.
+                </div>
+              ))}
+              {duplicates.length > 0 && (
+                <label className="field inline">
+                  <input type="checkbox" checked={allowDuplicate} onChange={(e) => setAllowDuplicate(e.target.checked)} />
+                  This is a separate problem: register a new complaint anyway
+                </label>
+              )}
+            </fieldset>
+          )}
+
           <fieldset>
             <legend>Dispatch</legend>
             <div className="form-grid">
@@ -423,7 +491,7 @@ export default function NewComplaint() {
               </label>
               <label className="field">
                 Assign technician
-                <select value={technicianId} onChange={(e) => setTechnicianId(e.target.value ? Number(e.target.value) : '')}>
+                <select value={technicianId} onChange={(e) => setTechnicianId(e.target.value)}>
                   <option value="">Not yet</option>
                   {technicians?.map((t) => (
                     <option key={t.id} value={t.id}>

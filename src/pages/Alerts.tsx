@@ -1,6 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { useAuth } from '../auth/AuthContext';
 import { useSettings } from '../components/SettingsContext';
 import { Empty, fmtDateTime, Loading, SeverityBadge, useAction } from '../components/ui';
 import { db } from '../db/db';
@@ -9,13 +10,14 @@ import { acknowledgeAlert } from '../db/service';
 export default function Alerts() {
   const settings = useSettings();
   const { run } = useAction();
+  const { can } = useAuth();
   const [show, setShow] = useState<'open' | 'all'>('open');
   const data = useLiveQuery(async () => {
     const alerts = (await db.alerts.toArray())
-      .filter((a) => show === 'all' || !a.acknowledged)
+      .filter((a) => !a.cleared && (show === 'all' || !a.acknowledged))
       .sort((a, b) => b.at.localeCompare(a.at));
-    const complaints = new Map((await db.complaints.bulkGet([...new Set(alerts.map((a) => a.complaintId))])).filter(Boolean).map((c) => [c!.id!, c!]));
-    const technicians = new Map((await db.technicians.toArray()).map((t) => [t.id!, t.name]));
+    const complaints = new Map((await db.complaints.bulkGet([...new Set(alerts.map((a) => a.complaintId))])).filter(Boolean).map((c) => [c!.id, c!]));
+    const technicians = new Map((await db.technicians.toArray()).map((t) => [t.id, t.name]));
     return { alerts, complaints, technicians };
   }, [show]);
 
@@ -55,12 +57,14 @@ export default function Alerts() {
                 </div>
                 {a.acknowledged ? (
                   <span className="small">Reviewed: {a.ackNote || '—'}</span>
+                ) : !can('reviewAlerts') ? (
+                  <span className="small muted">Awaiting Service Head review</span>
                 ) : (
                   <button
                     className="sm"
                     onClick={() => {
                       const note = prompt('Review note (why was this acceptable, or what action was taken?)');
-                      if (note !== null) run(() => acknowledgeAlert(db, settings, a.id!, note), 'Alert reviewed');
+                      if (note !== null) run(() => acknowledgeAlert(db, settings, a.id, note), 'Alert reviewed');
                     }}
                   >
                     Mark reviewed

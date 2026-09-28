@@ -1,7 +1,11 @@
 import { useEffect, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { useAuth, useSyncState, useUser } from '../auth/AuthContext';
+import { ChangePasswordForm } from '../auth/AuthScreens';
 import { useSettings } from '../components/SettingsContext';
-import { useAction } from '../components/ui';
-import { db } from '../db/db';
+import { Empty, fmtDateTime, useAction, useToast } from '../components/ui';
+import { ROLE_LABEL } from '../db/auth';
+import { db, runtime, SYNCED_TABLES, type SyncedTable } from '../db/db';
 import { loadDemoData, seedIfEmpty } from '../db/seed';
 import { exportAll, importAll } from '../db/service';
 import { saveSettings, type AppSettings } from '../db/settings';
@@ -13,7 +17,21 @@ export default function Settings() {
   const current = useSettings();
   const { run, busy } = useAction();
   const [s, setS] = useState<AppSettings>(current);
-  const [tab, setTab] = useState<'general' | 'norms' | 'data'>('general');
+  const { can } = useAuth();
+  const [params, setParams] = useSearchParams();
+  const tabs = [
+    { key: 'account', label: 'My account' },
+    ...(runtime.cloud ? [{ key: 'sync', label: 'Sync' }] : []),
+    ...(can('editSettings')
+      ? [
+          { key: 'general', label: 'General' },
+          { key: 'norms', label: 'Gas norms' },
+          { key: 'data', label: 'Data & backup' },
+        ]
+      : []),
+  ];
+  const tab = tabs.some((t) => t.key === params.get('tab')) ? params.get('tab')! : 'account';
+  const setTab = (t: string) => setParams({ tab: t }, { replace: true });
   useEffect(() => setS(current), [current]);
   const dirty = JSON.stringify(s) !== JSON.stringify(current);
   const n = s.norms;
@@ -27,19 +45,22 @@ export default function Settings() {
       <div className="topbar">
         <h1>Settings</h1>
         <span className="spacer" />
-        {dirty && (
+        {dirty && can('editSettings') && (
           <button className="primary" onClick={save} disabled={busy}>
             Save changes
           </button>
         )}
       </div>
       <div className="tabs">
-        {(['general', 'norms', 'data'] as const).map((t) => (
-          <button key={t} className={tab === t ? 'active' : ''} onClick={() => setTab(t)}>
-            {t === 'general' ? 'General' : t === 'norms' ? 'Gas norms' : 'Data & backup'}
+        {tabs.map((t) => (
+          <button key={t.key} className={tab === t.key ? 'active' : ''} onClick={() => setTab(t.key)}>
+            {t.label}
           </button>
         ))}
       </div>
+
+      {tab === 'account' && <AccountTab />}
+      {tab === 'sync' && <SyncTab />}
 
       {tab === 'general' && (
         <div className="stack">
@@ -51,8 +72,8 @@ export default function Settings() {
                 <input value={s.companyName} onChange={(e) => setS({ ...s, companyName: e.target.value })} />
               </label>
               <label className="field">
-                Your name on this device <span className="hint">recorded on every entry</span>
-                <input value={s.currentUser} onChange={(e) => setS({ ...s, currentUser: e.target.value })} />
+                Country dialling code <span className="hint">for WhatsApp / SMS, e.g. 265</span>
+                <input value={s.countryCode} onChange={(e) => setS({ ...s, countryCode: e.target.value.replace(/\D/g, '') })} />
               </label>
               <label className="field">
                 Currency
@@ -254,7 +275,9 @@ export default function Settings() {
           <div className="card">
             <h2>Backup &amp; restore</h2>
             <p className="small muted">
-              All data is stored on this device, and the app works offline. Download a backup regularly and keep it safe.
+              {runtime.cloud
+                ? 'Data is kept on the shared server and copied to each signed-in computer. The server keeps its own backups; you can also download a copy of everything here.'
+                : 'All data is stored on this device, and the app works offline. Download a backup regularly and keep it safe.'}
             </p>
             <div className="row">
               <button
@@ -268,7 +291,7 @@ export default function Settings() {
               >
                 Download backup
               </button>
-              <label className="btn">
+              {!runtime.cloud && <label className="btn">
                 Restore from backup…
                 <input
                   type="file"
@@ -281,17 +304,17 @@ export default function Settings() {
                     run(async () => importAll(db, JSON.parse(await file.text())), 'Backup restored');
                   }}
                 />
-              </label>
+              </label>}
             </div>
           </div>
-          <div className="card">
+          {!runtime.cloud && <div className="card">
             <h2>Demo data</h2>
             <p className="small muted">Adds two technicians, some stock and three sample complaints so you can try the workflow.</p>
             <button disabled={busy} onClick={() => run(() => loadDemoData(db, current), 'Demo data loaded')}>
               Load demo data
             </button>
-          </div>
-          <div className="card">
+          </div>}
+          {!runtime.cloud && <div className="card">
             <h2>Reset</h2>
             <p className="small muted">Deletes everything on this device. Download a backup first.</p>
             <button
@@ -299,8 +322,9 @@ export default function Settings() {
               onClick={() => {
                 if (prompt('Type DELETE to erase all data on this device') !== 'DELETE') return;
                 run(async () => {
-                  await db.transaction('rw', db.tables, async () => {
-                    for (const t of db.tables) await t.clear();
+                  // Accounts are kept so people can still sign in.
+                  await db.transaction('rw', SYNCED_TABLES.map((t) => db.table(t)), async () => {
+                    for (const t of SYNCED_TABLES) await db.table(t).clear();
                   });
                   await seedIfEmpty(db);
                 }, 'All data erased');
@@ -308,9 +332,136 @@ export default function Settings() {
             >
               Erase all data
             </button>
-          </div>
+          </div>}
         </div>
       )}
+    </div>
+  );
+}
+
+function AccountTab() {
+  const user = useUser();
+  const toast = useToast();
+  return (
+    <div className="grid cols-2" style={{ alignItems: 'start' }}>
+      <div className="card">
+        <h2>Signed in as</h2>
+        <dl className="kv">
+          <dt>Name</dt>
+          <dd>{user.displayName}</dd>
+          <dt>Email</dt>
+          <dd>{user.email}</dd>
+          <dt>Role</dt>
+          <dd>{ROLE_LABEL[user.role]}</dd>
+        </dl>
+        <p className="small muted" style={{ marginTop: 10 }}>
+          Your name and email are recorded on every complaint, call, stock movement and closure you make.
+        </p>
+      </div>
+      <div className="card">
+        <h2>Change password</h2>
+        <ChangePasswordForm user={user} onDone={() => toast('Password changed')} />
+      </div>
+    </div>
+  );
+}
+
+const TABLE_LABEL: Record<SyncedTable, string> = {
+  settings: 'Settings',
+  technicians: 'Technician',
+  items: 'Item',
+  customers: 'Customer',
+  complaints: 'Complaint',
+  movements: 'Stock movement',
+  logs: 'Timeline entry',
+  alerts: 'Alert',
+};
+
+function SyncTab() {
+  const { sync } = useAuth();
+  const state = useSyncState();
+  const { run, busy } = useAction();
+  const [rejected, setRejected] = useState<{ table: SyncedTable; row: Record<string, unknown> }[]>([]);
+  useEffect(() => {
+    void (async () => {
+      const out: { table: SyncedTable; row: Record<string, unknown> }[] = [];
+      for (const t of SYNCED_TABLES) {
+        for (const row of await db.table(t).where('_dirty').equals(2).toArray()) out.push({ table: t, row });
+      }
+      setRejected(out);
+    })();
+  }, [state?.rejected]);
+
+  if (!sync || !state) return <Empty>Sync starts after sign-in.</Empty>;
+  return (
+    <div className="stack">
+      <div className="card">
+        <h2>Status</h2>
+        <dl className="kv">
+          <dt>Connection</dt>
+          <dd>{state.status === 'offline' ? 'Offline' : state.status === 'error' ? 'Problem' : 'Connected'}</dd>
+          <dt>Last synced</dt>
+          <dd>{state.lastSyncAt ? fmtDateTime(state.lastSyncAt) : 'Not yet'}</dd>
+          <dt>Waiting to upload</dt>
+          <dd>{state.pending}</dd>
+          {state.message && (
+            <>
+              <dt>Last message</dt>
+              <dd>{state.message}</dd>
+            </>
+          )}
+        </dl>
+        <button style={{ marginTop: 12 }} disabled={busy} onClick={() => run(() => sync.syncNow(), 'Synced')}>
+          Sync now
+        </button>
+      </div>
+      <div className="card">
+        <h2>Changes refused by the server</h2>
+        <p className="small muted">
+          For example, stock issued on this computer when another computer had already issued the last of it. Check the details and
+          discard the change here, then redo it correctly if needed.
+        </p>
+        {rejected.length === 0 ? (
+          <Empty>None.</Empty>
+        ) : (
+          rejected.map(({ table, row }) => (
+            <div key={`${table}-${row.id as string}`} className="alert-box critical">
+              <div className="row between">
+                <strong>{TABLE_LABEL[table]}</strong>
+                <button
+                  className="sm"
+                  disabled={busy}
+                  onClick={() => run(() => sync.discardRejected(table, row.id as string), 'Change discarded')}
+                >
+                  Discard
+                </button>
+              </div>
+              <div className="small">{row._syncError as string}</div>
+              {table === 'movements' && (
+                <div className="small">
+                  {row.kind as string} of {Math.abs(row.qty as number)} ·{' '}
+                  {row.complaintId ? <Link to={`/complaints/${row.complaintId as string}`}>open job</Link> : null}
+                </div>
+              )}
+            </div>
+          ))
+        )}
+      </div>
+      <div className="card">
+        <h2>Refresh this computer's copy</h2>
+        <p className="small muted">Downloads everything from the server again. Changes waiting to upload are kept.</p>
+        <button
+          disabled={busy}
+          onClick={() =>
+            run(async () => {
+              await db.meta.filter((m) => m.key.startsWith('pull:')).delete();
+              await sync.syncNow();
+            }, 'Data refreshed')
+          }
+        >
+          Re-download data
+        </button>
+      </div>
     </div>
   );
 }

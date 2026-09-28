@@ -31,7 +31,7 @@ export default function Complaints() {
           : db.complaints.where('status').equals(status);
     return (await coll.toArray()).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }, [status]);
-  const customers = useLiveQuery(async () => new Map((await db.customers.toArray()).map((c) => [c.id!, c])), []);
+  const customers = useLiveQuery(async () => new Map((await db.customers.toArray()).map((c) => [c.id, c])), []);
   const technicians = useLiveQuery(() => db.technicians.toArray(), []);
 
   const filtered = useMemo(() => {
@@ -41,7 +41,7 @@ export default function Complaints() {
       if (status === 'overdue' && !(isOpen(c) && c.dueAt < now)) return false;
       if (brand && c.equipment.brand !== brand) return false;
       if (category && c.equipment.category !== category) return false;
-      if (tech && String(c.technicianId ?? '') !== tech) return false;
+      if (tech && (c.technicianId ?? '') !== tech) return false;
       if (!query) return true;
       const cust = customers.get(c.customerId);
       return [c.ticketNo, cust?.name, cust?.phone, c.equipment.serialNo, c.equipment.model, c.complaintType, c.callerName]
@@ -50,7 +50,7 @@ export default function Complaints() {
     });
   }, [complaints, customers, status, brand, category, tech, query]);
 
-  const techName = (id?: number) => technicians?.find((t) => t.id === id)?.name ?? '—';
+  const techName = (id?: string) => technicians?.find((t) => t.id === id)?.name ?? '—';
   const now = new Date().toISOString();
 
   return (
@@ -112,7 +112,7 @@ export default function Complaints() {
                   <th>Problem</th>
                   <th>Technician</th>
                   <th>Status</th>
-                  <th>Logged</th>
+                  <th>Logged / by</th>
                 </tr>
               </thead>
               <tbody>
@@ -145,7 +145,11 @@ export default function Complaints() {
                           </div>
                         )}
                       </td>
-                      <td className="nowrap small">{fmtDateTime(c.createdAt)}</td>
+                      <td className="nowrap small">
+                        {fmtDateTime(c.createdAt)}
+                        <div className="muted">{c.loggedByEmail ?? c.loggedBy}</div>
+                        {c.closedByEmail && <div className="muted">closed: {c.closedByEmail}</div>}
+                      </td>
                     </tr>
                   );
                 })}

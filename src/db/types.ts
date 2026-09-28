@@ -47,7 +47,7 @@ export type JobType =
 export type WarrantyStatus = 'In Warranty' | 'Out of Warranty' | 'AMC' | 'Unknown';
 
 export interface Customer {
-  id?: number;
+  id: string;
   name: string;
   phone: string;
   altPhone?: string;
@@ -59,7 +59,7 @@ export interface Customer {
 }
 
 export interface Technician {
-  id?: number;
+  id: string;
   name: string;
   phone: string;
   skills: string;
@@ -83,9 +83,9 @@ export interface Equipment {
 }
 
 export interface Complaint {
-  id?: number;
+  id: string;
   ticketNo: string;
-  customerId: number;
+  customerId: string;
   equipment: Equipment;
   complaintType: string;
   description: string;
@@ -98,9 +98,13 @@ export interface Complaint {
   preferredVisit?: string;
   /** Helpdesk executive who logged the complaint. */
   loggedBy: string;
+  loggedByEmail?: string;
+  /** Who closed it (cleared if re-opened). */
+  closedBy?: string;
+  closedByEmail?: string;
   priority: Priority;
   status: ComplaintStatus;
-  technicianId?: number;
+  technicianId?: string;
   source: 'Phone' | 'Walk-in' | 'Dealer' | 'Email' | 'WhatsApp' | 'Other';
   createdAt: string;
   updatedAt: string;
@@ -151,12 +155,13 @@ export const CALL_OUTCOMES = [
 export type CallOutcome = (typeof CALL_OUTCOMES)[number];
 
 export interface ComplaintLog {
-  id?: number;
-  complaintId: number;
+  id: string;
+  complaintId: string;
   at: string;
   kind: LogKind;
   text: string;
   by: string;
+  byEmail?: string;
   /** For customer contact entries: the outcome of the call. */
   outcome?: CallOutcome;
 }
@@ -170,7 +175,7 @@ export type ItemType = 'Spare' | 'Refrigerant' | 'Brazing Gas' | 'Nitrogen' | 'F
 export const GAS_TYPES: ItemType[] = ['Refrigerant', 'Brazing Gas', 'Nitrogen', 'Flushing Agent'];
 
 export interface InventoryItem {
-  id?: number;
+  id: string;
   sku: string;
   name: string;
   type: ItemType;
@@ -210,26 +215,27 @@ export interface ItemNorm {
 export type MovementKind = 'Receipt' | 'Issue' | 'Return' | 'Adjustment';
 
 export interface StockMovement {
-  id?: number;
-  itemId: number;
+  id: string;
+  itemId: string;
   kind: MovementKind;
   /** Signed quantity: + adds stock, - removes stock. */
   qty: number;
   at: string;
-  complaintId?: number;
-  technicianId?: number;
+  complaintId?: string;
+  technicianId?: string;
   reference?: string;
   note?: string;
   by: string;
+  byEmail?: string;
 }
 
 export type AlertSeverity = 'info' | 'warning' | 'critical';
 
 export interface ConsumptionAlert {
-  id?: number;
-  complaintId: number;
-  technicianId?: number;
-  itemId: number;
+  id: string;
+  complaintId: string;
+  technicianId?: string;
+  itemId: string;
   code: string;
   at: string;
   severity: AlertSeverity;
@@ -239,9 +245,21 @@ export interface ConsumptionAlert {
   message: string;
   acknowledged: boolean;
   ackNote?: string;
+  /** Set when a later re-evaluation no longer raises this alert. */
+  cleared?: boolean;
 }
 
 export interface Setting {
-  key: string;
+  id: string;
   value: unknown;
+}
+
+/** Local bookkeeping fields for syncing; never sent to the server. */
+export interface SyncMeta {
+  /** 1 = changed locally and not yet sent; 2 = rejected by the server. */
+  _dirty?: 0 | 1 | 2;
+  /** Server timestamp of the version held locally. */
+  _serverAt?: string;
+  /** Why the server rejected the last attempt to send this row. */
+  _syncError?: string;
 }

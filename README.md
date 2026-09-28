@@ -1,56 +1,103 @@
 # Somotex Service Portal
 
-An installable, offline-first web app (PWA) for the service centre. It covers:
+An installable web app (PWA) for the service centre. It covers:
 
-- **Complaint registration.** The helpdesk records the caller, what the customer said in their own words, and their preferred visit time.
-- **Guided questionnaire.** Each product type has its own questions, and the app suggests likely causes as they're answered.
-- **Complaint tracking.** Technician assignment, status timeline, target resolution times, customer call log and closure history.
-- **Inventory.** Spares, refrigerants, brazing gases, nitrogen and consumables, with a full stock ledger and stock-sheet import.
-- **Gas consumption control.** Every job gets a budget for refrigerant, brazing gas, nitrogen and flushing solvent. Over-use is flagged, and a Gas Efficiency page shows where gas is being lost.
+- **Complaint registration.** Helpdesk executives register complaints with a guided questionnaire, record the customer's own words, and get likely causes as they type.
+- **Dispatch and tracking.** Executives assign technicians and track each complaint through to closure, including target times, the customer call log and closure history.
+- **Duplicate warnings.** The app warns when a complaint is already open for the same customer or unit, and flags repeat visits.
+- **Inventory.** Spares, refrigerants, brazing gases, nitrogen and consumables, with a complete ledger, stock-sheet import and a reorder list.
+- **Gas budgets.** Every job gets a budget for refrigerant, brazing gas, nitrogen and flushing solvent. Over-use is flagged, and a Gas Efficiency page shows where gas is being lost.
+- **Printable job cards** for technicians, and **WhatsApp / SMS updates** to customers.
 
 Brands include Midea (commercial AC / VRF), Sharp, Beko, AUX and Chigo, plus the in-house brands **Tamashi** and **Bruhm**.
 
-## Running it
+## Who uses it
 
-```bash
-npm install
-npm run dev        # development server
-npm test           # unit tests
-npm run build      # production build in dist/
-npm run preview    # serve the production build
-```
+| Role | Can do |
+| --- | --- |
+| **Service Head** | Everything. Also: manage user accounts, settings and gas norms, technicians, the item catalogue and costs, stock sheet imports, stock counts, reviewing gas alerts, re-opening or cancelling complaints. |
+| **Helpdesk Executive** | Register, update and close **any** complaint (including other executives'), assign technicians, log customer calls, issue and return stock, receive deliveries, print job cards, view reports. |
 
-Open the app in Chrome or Edge and use **Install app** (or **Add to Home screen** on Android or iOS). After the first load it works without an internet connection.
+Everyone signs in with their **own email and password**. The server records who logged and who closed each complaint, with their email address, from the signed-in account, so it can't be typed in by someone else. The same applies to every timeline entry and stock movement.
 
-### Hosting
+## Going live (shared between computers)
 
-The app is a set of static files, so any static host works. Ready-made configuration is included for:
+The app is hosted on **Vercel** (or Netlify). Shared data and logins live in **Supabase** (PostgreSQL). Both have free tiers that are enough for a service centre.
 
-- **Vercel:** *Add New → Project*, then import this repository. `vercel.json` sets the build command and caching.
-- **Netlify:** *Add new site → Import an existing project*, then pick this repository. `netlify.toml` sets the build command and caching.
-- **GitHub Pages:** `.github/workflows/deploy.yml` publishes on every push to `main`. To turn it on, go to **Settings → Pages → Source: GitHub Actions**.
+### 1. Create the database (Supabase)
 
-Vercel and Netlify also build a preview link for every branch and pull request.
+1. Sign up at [supabase.com](https://supabase.com) and create a new project. Pick the region closest to you, and keep the database password somewhere safe.
+2. Open **SQL Editor → New query**, paste the whole of [`supabase/schema.sql`](supabase/schema.sql) and click **Run**.
+3. Open **Authentication → Sign In / Providers**:
+   - Turn **off** "Allow new users to sign up". Only the Service Head creates accounts.
+   - Keep **Email** enabled.
+4. Open **Project Settings → API** and copy the **Project URL** and the **anon public** key.
 
-The service worker (`sw.js`) is served with `no-cache`, so installed copies pick up new versions on their next visit.
+### 2. Publish the app (Vercel)
 
-## Where the data lives
+1. At [vercel.com](https://vercel.com), choose **Add New → Project** and import this repository.
+2. Under **Environment Variables**, add:
+   - `VITE_SUPABASE_URL`: the Project URL
+   - `VITE_SUPABASE_ANON_KEY`: the anon public key
+3. Click **Deploy**. You get an address like `somotex-service.vercel.app`, and you can add your own domain later.
 
-All data is stored **on the device** in the browser's IndexedDB, so the app is fast and works offline. As a result, each device has its own data. Use **Settings → Data & backup** to download a backup regularly and to restore it.
+On Netlify it's the same: import the repository, then add both variables under **Site configuration → Environment variables**.
 
-To share one live dataset between the helpdesk, technicians and the store, add a server database such as PostgreSQL. All reads and writes go through `src/db/service.ts`, so that file is the place to connect a sync or API layer.
+### 3. First sign-in
 
-## First-time setup
+1. Open the app address. The first screen is **First-time setup**: the Service Head creates their own account. Do this straight away. Until it's done, anyone who opens the address could claim the Service Head account.
+2. The Service Head opens **Users** and adds each helpdesk executive with their name and email. The app gives each one a temporary password, and they choose their own password at first sign-in.
+3. The Service Head:
+   - adds **Technicians**
+   - imports stock sheets under **Inventory → Import stock sheet**
+   - sets unit costs
+   - reviews **Settings** (company name, dialling code, target times, gas norms)
+4. On each computer, open the address in Chrome or Edge and choose **Install app**, so it opens like a normal program.
 
-1. **Settings → General:** enter your name. It is recorded against every entry you make. Also check the currency, brands and target times.
-2. **Technicians:** add the team.
-3. **Inventory → Import stock sheet:** upload your spare parts and gas stock lists as CSV, starting from **Download template**.
-   - Columns are matched by name. Headings like *Part No, Description, UOM, Qty, Min Stock, Rate, Model, Bin* work.
-   - Refrigerants, brazing gases (and their method), nitrogen and flushing solvent are recognised from the item name.
-4. **Inventory → item → Edit:** set unit costs, so excess gas shows as money. Review the per-activity norms for brazing gases, nitrogen and flushing solvent.
-5. **Settings → Gas norms:** adjust the refrigerant charge norms and job-type factors to your own experience.
+**Forgotten password:** the Service Head uses **Users → Reset password** and gives the person the new temporary password.
 
-To try it out first, use **Settings → Data & backup → Load demo data**.
+**Leaving staff:** use **Disable**. They can no longer sign in or see any data, and their past entries keep their name.
+
+Supabase's free tier pauses a project after a week without any use. Normal daily use keeps it awake; a paused project can be restored from the Supabase dashboard.
+
+## How the data works
+
+- **Each computer keeps a copy of the data**, so screens open instantly and work continues if the internet drops. Changes made offline are uploaded when the connection returns. The sidebar shows the sync status.
+- **Changes appear on the other computers within seconds**, and at the latest within a minute.
+- **Ticket numbers** (e.g. `SMX-2026-00042`) are assigned by the server, so two computers never issue the same number. A complaint registered offline shows a temporary `TMP-…` number until it reaches the server.
+- **Stock levels** are calculated from the shared stock ledger. If two computers issue the last of an item at the same time, the server refuses the second issue. It then appears under **Settings → Sync** for review.
+- If two people edit the same complaint at the same moment, the last save wins. Every action is also kept in the complaint's timeline.
+
+Without the two environment variables, the app runs in **single-device mode**: accounts and data live only in that browser. This is useful for trying it out; use **Settings → Data & backup** for backups in that mode.
+
+## Daily use
+
+### New complaint
+
+1. Find the customer by name or phone, or enter a new one.
+2. Record the product. Capacity, refrigerant and nameplate charge make the gas budget accurate.
+3. Type what the customer says and answer the questions for that product.
+
+As you answer:
+- Likely causes appear, with what the technician should check and what to carry.
+- Safety issues, such as a gas smell at a cooker, raise the priority and show advice to read to the customer.
+- If a complaint is already open for the same phone number or serial number, it's shown with who logged it. Registering another one needs a deliberate tick.
+- If the unit was closed within the last 30 days, the app flags a likely repeat visit.
+
+### On the complaint page
+
+- Assign a technician and print the **Job card**.
+- Send the customer a **WhatsApp or SMS** update from a template.
+- Log customer calls.
+- Issue gas and spares against the job's budget. Going over the budget requires a reason.
+- Record the job details, the confirmed cause and the resolution, then close the complaint.
+
+### Other pages
+
+- **Alerts:** gas used above budget, the wrong refrigerant, gas used with no matching activity, and units charged repeatedly. The Service Head reviews each alert.
+- **Gas efficiency:** actual vs budget and the cost of excess, by gas, technician, job type and brand, with savings advice.
+- **Reports:** closures, time to resolve, share resolved within target, ratings, technician performance (including jobs that came back within 30 days), in-house brand failures by model, and a CSV export that includes who logged and who closed each complaint.
+- **Inventory → Reorder list:** items to order, with suggested quantities based on the last 30 days' use.
 
 ## How gas budgets work
 
@@ -70,11 +117,9 @@ budget = full charge × job-type share
        + hose / purge allowance
 ```
 
-For example, a top-up is 35% of the full charge, a leak repair with full recharge is 100%, and a PCB repair is 0%.
-
 ### Brazing gases, nitrogen and flushing solvent
 
-These are budgeted per activity that is recorded on the job:
+These are budgeted per activity recorded on the job:
 
 | Gas | Budgeted per | Counts when |
 | --- | --- | --- |
@@ -84,42 +129,29 @@ These are budgeted per activity that is recorded on the job:
 | Nitrogen | brazed joint (purge), pressure test (+ per kW), metre flushed | purging, pressure test or flushing is recorded |
 | Flushing solvent | metre flushed | flushing is recorded |
 
-### Enforcement and alerts
+The starting norms are estimates. The Service Head should tune them under **Settings → Gas norms** and on each gas item.
 
-**At the store counter**, the job screen shows the budget for each gas.
-- Issuing beyond budget + tolerance (default 15%) requires a written reason.
-- Unused gas returned to the store is credited back to the job.
+## Development
 
-**Alerts** are raised automatically, and a supervisor reviews each one with a note. The app raises them for:
-- use above budget: a warning above the tolerance, critical above 40%
-- the wrong refrigerant for the unit
-- gas used where the job records no matching activity, such as acetylene on an LPG-brazed job, or refrigerant on a PCB repair
-- the same serial number re-charged within 90 days, which points to a leak that wasn't fixed
+```bash
+npm install
+npm run dev               # development server (single-device mode unless .env.local is set; see .env.example)
+npm test                  # unit, data-layer, sync and login tests
+npm run build             # production build in dist/
+supabase/tests/run.sh     # database schema tests (needs a local PostgreSQL; see the script)
+```
 
-**The Gas Efficiency page** shows:
-- actual vs budget and the cost of excess, by gas, technician, job type and brand
-- the jobs furthest over budget
-- units that were charged repeatedly
-- savings advice generated from the data, such as a high share of top-ups, low refrigerant recovery or brazing gas over the per-joint norm
-
-## Helpdesk questionnaire
-
-There are question sets for air conditioners (split, commercial, VRF, chiller), fridges and freezers, washing machines, TVs, gas cookers and microwaves.
-
-As the executive fills in answers and types what the customer says, the app:
-- ranks likely causes, with what the technician should check and which spares and gas to carry
-- suggests things the customer can safely try on the call
-- raises the priority for safety issues, with advice to read to the customer (for example, a gas smell at a cooker)
-
-At closure the technician picks the **confirmed cause**. Causes confirmed on earlier jobs rank higher in later suggestions. The rules live in `src/lib/diagnosis.ts` and are plain data, so they are easy to extend.
+The GitHub Actions workflow runs the app tests, the build and the database tests on every push. It publishes `main` to GitHub Pages when Pages is enabled.
 
 ## Project layout
 
 | Path | Contents |
 | --- | --- |
-| `src/lib/consumption.ts` | Gas budget and alert engine (pure functions, unit tested) |
+| `supabase/schema.sql` | Shared database: tables, access rules by role, ticket numbering, stock checks, staff account functions |
+| `supabase/tests/` | Database tests run against plain PostgreSQL with a Supabase stand-in |
+| `src/cloud/sync.ts` | Sync between the device copy and the server |
+| `src/auth/` | Sign-in (shared or single-device), setup and password screens |
+| `src/lib/consumption.ts` | Gas budget and alert engine |
 | `src/lib/diagnosis.ts` | Questionnaires and cause suggestions |
-| `src/lib/csv.ts` | CSV parsing, export and stock-sheet mapping |
-| `src/db/` | Database schema (Dexie / IndexedDB), data operations, settings, seed and demo data |
+| `src/db/` | Device database, data operations, settings, accounts, seed and demo data |
 | `src/pages/` | Screens, each loaded on demand |
-| `src/__tests__/` | Unit and data-layer tests |

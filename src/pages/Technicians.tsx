@@ -1,8 +1,9 @@
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
+import { useAuth } from '../auth/AuthContext';
 import { Empty, Loading, useAction } from '../components/ui';
-import { db } from '../db/db';
+import { db, newId } from '../db/db';
 import { isOpen } from '../db/service';
 import type { Technician } from '../db/types';
 
@@ -10,11 +11,12 @@ const blank: Omit<Technician, 'id'> = { name: '', phone: '', skills: '', active:
 
 export default function Technicians() {
   const { run, busy } = useAction();
+  const { can } = useAuth();
   const [f, setF] = useState(blank);
-  const [editId, setEditId] = useState<number>();
+  const [editId, setEditId] = useState<string>();
   const data = useLiveQuery(async () => {
     const [techs, complaints] = await Promise.all([db.technicians.orderBy('name').toArray(), db.complaints.toArray()]);
-    const load = new Map<number, { open: number; closed: number }>();
+    const load = new Map<string, { open: number; closed: number }>();
     for (const c of complaints) {
       if (!c.technicianId) continue;
       const l = load.get(c.technicianId) ?? { open: 0, closed: 0 };
@@ -30,7 +32,7 @@ export default function Technicians() {
     run(async () => {
       if (!f.name.trim()) throw new Error('Enter a name');
       if (editId) await db.technicians.update(editId, f);
-      else await db.technicians.add({ ...f, name: f.name.trim() });
+      else await db.technicians.add({ ...f, id: newId(), name: f.name.trim() });
       setF(blank);
       setEditId(undefined);
     }, 'Saved');
@@ -67,11 +69,11 @@ export default function Technicians() {
                         </div>
                       </td>
                       <td className="num">
-                        <Link to="/complaints?status=open">{data.load.get(t.id!)?.open ?? 0}</Link>
+                        <Link to="/complaints?status=open">{data.load.get(t.id)?.open ?? 0}</Link>
                       </td>
-                      <td className="num">{data.load.get(t.id!)?.closed ?? 0}</td>
+                      <td className="num">{data.load.get(t.id)?.closed ?? 0}</td>
                       <td className="right">
-                        <button
+                        {can('manageTechnicians') && <button
                           className="sm"
                           onClick={() => {
                             setEditId(t.id);
@@ -79,7 +81,7 @@ export default function Technicians() {
                           }}
                         >
                           Edit
-                        </button>
+                        </button>}
                       </td>
                     </tr>
                   ))}
@@ -88,6 +90,7 @@ export default function Technicians() {
             </div>
           )}
         </div>
+        {can('manageTechnicians') ? (
         <form className="card" onSubmit={submit}>
           <h2>{editId ? 'Edit technician' : 'Add technician'}</h2>
           <div className="form-grid">
@@ -125,6 +128,9 @@ export default function Technicians() {
             )}
           </div>
         </form>
+        ) : (
+          <div className="card small muted">Technicians are added and edited by the Service Head.</div>
+        )}
       </div>
     </div>
   );

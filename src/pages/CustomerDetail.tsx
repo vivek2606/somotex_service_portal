@@ -6,7 +6,7 @@ import { db } from '../db/db';
 import type { Customer } from '../db/types';
 
 export default function CustomerDetail() {
-  const id = Number(useParams().id);
+  const id = useParams().id ?? '';
   const customer = useLiveQuery(() => db.customers.get(id), [id]);
   const complaints = useLiveQuery(() => db.complaints.where('customerId').equals(id).reverse().sortBy('createdAt'), [id]);
   const { run, busy } = useAction();

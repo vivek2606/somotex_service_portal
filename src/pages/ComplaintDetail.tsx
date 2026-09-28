@@ -1,6 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import { useAuth } from '../auth/AuthContext';
 import { SuggestionPanel } from '../components/Diagnosis';
 import { useSettings } from '../components/SettingsContext';
 import {
@@ -44,7 +45,7 @@ const NEXT: Record<ComplaintStatus, ComplaintStatus[]> = {
 };
 
 export default function ComplaintDetail() {
-  const id = Number(useParams().id);
+  const id = useParams().id ?? '';
   const c = useLiveQuery(() => db.complaints.get(id), [id]);
   if (c === undefined) return <Loading />;
   return <Detail c={c} />;
@@ -52,12 +53,13 @@ export default function ComplaintDetail() {
 
 function Detail({ c }: { c: Complaint }) {
   const settings = useSettings();
+  const { can: canDo } = useAuth();
   const { run, busy } = useAction();
-  const id = c.id!;
+  const id = c.id;
   const customer = useLiveQuery(() => db.customers.get(c.customerId), [c.customerId]);
   const technicians = useLiveQuery(() => db.technicians.toArray(), []);
   const logs = useLiveQuery(() => db.logs.where('complaintId').equals(id).reverse().sortBy('at'), [id]);
-  const alerts = useLiveQuery(() => db.alerts.where('complaintId').equals(id).toArray(), [id]);
+  const alerts = useLiveQuery(() => db.alerts.where('complaintId').equals(id).filter((a) => !a.cleared).toArray(), [id]);
   const usage = useLiveQuery(() => materialUsage(db, id), [id, c.updatedAt, logs?.length]);
   const items = useLiveQuery(() => db.items.filter((i) => i.active).sortBy('name'), []);
   const confirmed = useLiveQuery(() => confirmedCauseCounts(db), []);
@@ -91,7 +93,16 @@ function Detail({ c }: { c: Complaint }) {
             {c.ticketNo} <StatusBadge status={c.status} /> <PriorityBadge priority={c.priority} />
           </h1>
           <div className="small muted">
-            Logged {fmtDateTime(c.createdAt)} by {c.loggedBy} via {c.source} ·{' '}
+            Logged {fmtDateTime(c.createdAt)} by {c.loggedBy}
+            {c.loggedByEmail && ` (${c.loggedByEmail})`} via {c.source}
+            {c.status === 'Closed' && c.closedBy && (
+              <>
+                {' '}
+                · Closed {fmtDateTime(c.closedAt)} by {c.closedBy}
+                {c.closedByEmail && ` (${c.closedByEmail})`}
+              </>
+            )}{' '}
+            ·{' '}
             {isOpen(c) ? (
               <span style={{ color: overdue ? 'var(--bad)' : undefined }}>
                 {overdue ? 'Overdue by ' : 'Due in '}
@@ -104,7 +115,13 @@ function Detail({ c }: { c: Complaint }) {
         </div>
         <span className="spacer" />
         <div className="row">
-          {NEXT[c.status].map((s) => (
+          <Link to={`/complaints/${id}/job-card`} className="btn">
+            Job card
+          </Link>
+          {NEXT[c.status]
+            // Executives move open jobs forward; re-opening and cancelling are for the Service Head.
+            .filter((s) => canDo('reopenOrCancel') || (isOpen(c) && s !== 'Cancelled') || (c.status === 'Resolved' && s === 'Closed'))
+            .map((s) => (
             <button key={s} className={s === 'Closed' || s === 'Resolved' ? 'primary' : ''} disabled={busy} onClick={() => changeStatus(s)}>
               {s === 'In Progress' && !isOpen(c) ? 'Re-open' : s}
             </button>
@@ -217,12 +234,14 @@ function Detail({ c }: { c: Complaint }) {
                     <SeverityBadge severity={a.severity} />
                     {a.acknowledged ? (
                       <span className="small muted">Reviewed: {a.ackNote}</span>
+                    ) : !canDo('reviewAlerts') ? (
+                      <span className="small muted">Awaiting Service Head review</span>
                     ) : (
                       <button
                         className="sm"
                         onClick={() => {
                           const note = prompt('Review note (why was this acceptable, or what action was taken?)');
-                          if (note !== null) run(() => acknowledgeAlert(db, settings, a.id!, note), 'Alert reviewed');
+                          if (note !== null) run(() => acknowledgeAlert(db, settings, a.id, note), 'Alert reviewed');
                         }}
                       >
                         Mark reviewed
@@ -243,7 +262,7 @@ function Detail({ c }: { c: Complaint }) {
               <select
                 value={c.technicianId ?? ''}
                 disabled={busy}
-                onChange={(e) => e.target.value && run(() => assignTechnician(db, settings, id, Number(e.target.value)), 'Technician assigned')}
+                onChange={(e) => e.target.value && run(() => assignTechnician(db, settings, id, e.target.value), 'Technician assigned')}
                 style={{ flex: 1 }}
               >
                 <option value="">Unassigned</option>
@@ -263,6 +282,7 @@ function Detail({ c }: { c: Complaint }) {
             </div>
           </div>
 
+          {customer && <CustomerUpdateCard c={c} customerName={customer.name} phone={customer.phone} techName={tech?.name} />}
           <CustomerContactCard complaintId={id} />
           <NoteCard complaintId={id} />
 
@@ -280,6 +300,7 @@ function Detail({ c }: { c: Complaint }) {
                     </div>
                     <div className="meta">
                       {fmtDateTime(l.at)} · {l.by}
+                      {l.byEmail && ` (${l.byEmail})`}
                     </div>
                   </li>
                 ))}
@@ -313,7 +334,7 @@ function JobCard({ c }: { c: Complaint }) {
 
   const save = (e: FormEvent) => {
     e.preventDefault();
-    run(() => updateJobDetails(db, settings, c.id!, f), 'Job details saved');
+    run(() => updateJobDetails(db, settings, c.id, f), 'Job details saved');
   };
 
   return (
@@ -454,7 +475,7 @@ function MaterialsCard({
 }) {
   const settings = useSettings();
   const { run, busy } = useAction();
-  const [itemId, setItemId] = useState<number | ''>('');
+  const [itemId, setItemId] = useState<string>('');
   const [qty, setQty] = useState('');
   const [reason, setReason] = useState('');
   const item = items?.find((i) => i.id === itemId);
@@ -478,7 +499,7 @@ function MaterialsCard({
     e.preventDefault();
     if (!itemId) return;
     run(async () => {
-      await issueToComplaint(db, settings, c.id!, itemId, q, reason.trim() || undefined);
+      await issueToComplaint(db, settings, c.id, itemId, q, reason.trim() || undefined);
       setQty('');
       setReason('');
     }, 'Issued');
@@ -533,7 +554,7 @@ function MaterialsCard({
       <form onSubmit={issue} className="form-grid" style={{ marginTop: 8 }}>
         <label className="field span-all">
           Issue from store
-          <select value={itemId} onChange={(e) => setItemId(e.target.value ? Number(e.target.value) : '')}>
+          <select value={itemId} onChange={(e) => setItemId(e.target.value)}>
             <option value="">Select item…</option>
             {items?.map((i) => (
               <option key={i.id} value={i.id} disabled={i.stock <= 0}>
@@ -593,7 +614,7 @@ function MaterialsCard({
                       disabled={busy}
                       onClick={() => {
                         const v = prompt(`Return how much ${u.item.name} (${u.item.unit}) to store?`, String(u.qty));
-                        if (v) run(() => returnFromComplaint(db, settings, c.id!, u.item.id!, Number(v)), 'Returned to store');
+                        if (v) run(() => returnFromComplaint(db, settings, c.id, u.item.id, Number(v)), 'Returned to store');
                       }}
                     >
                       Return
@@ -609,7 +630,7 @@ function MaterialsCard({
   );
 }
 
-function CustomerContactCard({ complaintId }: { complaintId: number }) {
+function CustomerContactCard({ complaintId }: { complaintId: string }) {
   const settings = useSettings();
   const { run, busy } = useAction();
   const [outcome, setOutcome] = useState<CallOutcome>('Customer reached');
@@ -647,7 +668,7 @@ function CustomerContactCard({ complaintId }: { complaintId: number }) {
   );
 }
 
-function NoteCard({ complaintId }: { complaintId: number }) {
+function NoteCard({ complaintId }: { complaintId: string }) {
   const settings = useSettings();
   const { run, busy } = useAction();
   const [text, setText] = useState('');
@@ -658,7 +679,7 @@ function NoteCard({ complaintId }: { complaintId: number }) {
         e.preventDefault();
         if (!text.trim()) return;
         run(async () => {
-          await addLog(db, complaintId, 'note', text.trim(), settings.currentUser);
+          await addLog(db, complaintId, 'note', text.trim(), settings);
           setText('');
         });
       }}
@@ -670,4 +691,57 @@ function NoteCard({ complaintId }: { complaintId: number }) {
       </button>
     </form>
   );
+}
+
+/** Pre-written customer messages sent from the helpdesk phone via WhatsApp or SMS. */
+function CustomerUpdateCard({ c, customerName, phone, techName }: { c: Complaint; customerName: string; phone: string; techName?: string }) {
+  const settings = useSettings();
+  const templates: Record<string, string> = {
+    Registered: `Dear ${customerName}, your service request ${c.ticketNo} for your ${c.equipment.brand} ${c.equipment.category} has been registered with ${settings.companyName}. We will contact you to arrange a visit.`,
+    'Technician assigned': `Dear ${customerName}, technician ${techName ?? ''} has been assigned to your request ${c.ticketNo}${c.preferredVisit ? ` and will visit ${c.preferredVisit}` : ''}. Thank you for choosing ${settings.companyName}.`,
+    'Awaiting parts': `Dear ${customerName}, the parts for your request ${c.ticketNo} have been ordered. We will update you as soon as they arrive.`,
+    'Job completed': `Dear ${customerName}, the work on your request ${c.ticketNo} is complete. Please reply with a rating from 1 (poor) to 5 (excellent) for our service. Thank you, ${settings.companyName}.`,
+  };
+  const [key, setKey] = useState(Object.keys(templates)[0]);
+  const [text, setText] = useState('');
+  const message = text || templates[key];
+  const intl = toInternational(phone, settings.countryCode);
+  const log = (via: string) => void logCustomerContact(db, settings, c.id, 'Customer reached', `${via} update sent: “${message}”`);
+  return (
+    <div className="card">
+      <h2>Send customer update</h2>
+      <label className="field">
+        Message
+        <select
+          value={key}
+          onChange={(e) => {
+            setKey(e.target.value);
+            setText('');
+          }}
+        >
+          {Object.keys(templates).map((k) => (
+            <option key={k}>{k}</option>
+          ))}
+        </select>
+      </label>
+      <textarea style={{ marginTop: 8 }} value={message} onChange={(e) => setText(e.target.value)} />
+      <div className="row" style={{ marginTop: 8 }}>
+        <a className="btn" href={`https://wa.me/${intl}?text=${encodeURIComponent(message)}`} target="_blank" rel="noreferrer" onClick={() => log('WhatsApp')}>
+          WhatsApp
+        </a>
+        <a className="btn" href={`sms:+${intl}?body=${encodeURIComponent(message)}`} onClick={() => log('SMS')}>
+          SMS
+        </a>
+      </div>
+    </div>
+  );
+}
+
+/** Converts a local number such as 0888 123 456 to 265888123456. */
+function toInternational(phone: string, countryCode: string) {
+  const digits = phone.replace(/\D/g, '');
+  if (digits.startsWith('00')) return digits.slice(2);
+  if (digits.startsWith('0')) return countryCode + digits.slice(1);
+  if (digits.startsWith(countryCode)) return digits;
+  return countryCode + digits;
 }

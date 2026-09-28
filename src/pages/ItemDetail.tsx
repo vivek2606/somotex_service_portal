@@ -1,6 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import { useAuth } from '../auth/AuthContext';
 import { ItemForm } from '../components/ItemForm';
 import { useSettings } from '../components/SettingsContext';
 import { Empty, fmtDateTime, fmtMoney, fmtNum, Loading, useAction } from '../components/ui';
@@ -8,16 +9,17 @@ import { db } from '../db/db';
 import { adjustStock, receiveStock } from '../db/service';
 
 export default function ItemDetail() {
-  const id = Number(useParams().id);
+  const id = useParams().id ?? '';
   const settings = useSettings();
   const item = useLiveQuery(() => db.items.get(id), [id]);
   const moves = useLiveQuery(() => db.movements.where('itemId').equals(id).reverse().sortBy('at'), [id]);
   const complaints = useLiveQuery(async () => {
-    const ids = [...new Set((moves ?? []).map((m) => m.complaintId).filter((x): x is number => x !== undefined))];
-    return new Map((await db.complaints.bulkGet(ids)).filter(Boolean).map((c) => [c!.id!, c!.ticketNo]));
+    const ids = [...new Set((moves ?? []).map((m) => m.complaintId).filter((x): x is string => x !== undefined))];
+    return new Map((await db.complaints.bulkGet(ids)).filter(Boolean).map((c) => [c!.id, c!.ticketNo]));
   }, [moves]);
-  const technicians = useLiveQuery(async () => new Map((await db.technicians.toArray()).map((t) => [t.id!, t.name])), []);
+  const technicians = useLiveQuery(async () => new Map((await db.technicians.toArray()).map((t) => [t.id, t.name])), []);
   const { run, busy } = useAction();
+  const { can } = useAuth();
   const [recv, setRecv] = useState({ qty: '', ref: '', cost: '' });
   const [count, setCount] = useState({ qty: '', note: '' });
   const [editing, setEditing] = useState(false);
@@ -52,7 +54,7 @@ export default function ItemDetail() {
           </div>
         </div>
         <span className="spacer" />
-        <button onClick={() => setEditing(!editing)}>{editing ? 'Close' : 'Edit item'}</button>
+        {can('editItems') && <button onClick={() => setEditing(!editing)}>{editing ? 'Close' : 'Edit item'}</button>}
       </div>
 
       <div className="grid kpis" style={{ marginBottom: 14 }}>
@@ -104,15 +106,18 @@ export default function ItemDetail() {
               GRN / invoice ref.
               <input value={recv.ref} onChange={(e) => setRecv({ ...recv, ref: e.target.value })} />
             </label>
-            <label className="field">
-              Unit cost <span className="hint">optional, updates cost</span>
-              <input type="number" min="0" step="any" value={recv.cost} onChange={(e) => setRecv({ ...recv, cost: e.target.value })} />
-            </label>
+            {can('editItems') && (
+              <label className="field">
+                Unit cost <span className="hint">optional, updates cost</span>
+                <input type="number" min="0" step="any" value={recv.cost} onChange={(e) => setRecv({ ...recv, cost: e.target.value })} />
+              </label>
+            )}
           </div>
           <button className="primary" disabled={busy} style={{ marginTop: 12 }}>
             Receive
           </button>
         </form>
+        {can('adjustStock') && (
         <form className="card" onSubmit={adjust}>
           <h2>Stock count / adjustment</h2>
           <div className="form-grid">
@@ -129,6 +134,7 @@ export default function ItemDetail() {
             Save count
           </button>
         </form>
+        )}
       </div>
 
       <div className="card" style={{ marginTop: 14, padding: 0 }}>
@@ -162,7 +168,11 @@ export default function ItemDetail() {
                       {m.note && <div className="small muted">{m.note}</div>}
                     </td>
                     <td className="hide-mobile">{m.technicianId ? technicians?.get(m.technicianId) : ''}</td>
-                    <td className="hide-mobile small">{m.by}</td>
+                    <td className="hide-mobile small">
+                      {m.by}
+                      {m.byEmail && <div className="muted">{m.byEmail}</div>}
+                      {m._dirty === 2 && <div className="error">Refused by server: {m._syncError}</div>}
+                    </td>
                   </tr>
                 ))}
               </tbody>

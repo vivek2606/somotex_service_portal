@@ -32,9 +32,28 @@ jobs:
         with:
           path: dist
 
+  database:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: supabase/tests/run.sh
+        env:
+          PGHOST: localhost
+          PGPORT: 5432
+          PGUSER: postgres
+          PGPASSWORD: postgres
+
   deploy:
     if: github.ref == 'refs/heads/main'
-    needs: build
+    needs: [build, database]
     runs-on: ubuntu-latest
     environment:
       name: github-pages

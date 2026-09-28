@@ -15,7 +15,7 @@ export default function Dashboard() {
     const closedMonth = await db.complaints.where('closedAt').aboveOrEqual(monthStart).toArray();
     const items = await db.items.filter((i) => i.active).toArray();
     const low = items.filter((i) => i.stock <= i.reorderLevel).sort((a, b) => a.stock / (a.reorderLevel || 1) - b.stock / (b.reorderLevel || 1));
-    const alerts = await db.alerts.filter((a) => !a.acknowledged && a.severity !== 'info').reverse().sortBy('at');
+    const alerts = await db.alerts.filter((a) => !a.acknowledged && !a.cleared && a.severity !== 'info').reverse().sortBy('at');
     const gas = await gasJobStats(db, settings, monthStart);
     const tats = closedMonth.filter((c) => c.resolvedAt).map((c) => new Date(c.resolvedAt!).getTime() - new Date(c.createdAt).getTime());
     const excessCost = gas.reduce(
@@ -24,7 +24,7 @@ export default function Dashboard() {
     );
     const gasCost = gas.reduce((t, s) => t + s.actual * s.unitCost, 0);
     const complaints = new Map(
-      (await db.complaints.bulkGet([...new Set(alerts.map((a) => a.complaintId))])).filter(Boolean).map((c) => [c!.id!, c!]),
+      (await db.complaints.bulkGet([...new Set(alerts.map((a) => a.complaintId))])).filter(Boolean).map((c) => [c!.id, c!]),
     );
     return {
       open,

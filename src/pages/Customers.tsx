@@ -11,7 +11,7 @@ export default function Customers() {
   const [limit, setLimit] = useState(50);
   const data = useLiveQuery(async () => {
     const [customers, complaints] = await Promise.all([db.customers.orderBy('name').toArray(), db.complaints.toArray()]);
-    const stats = new Map<number, { total: number; open: number }>();
+    const stats = new Map<string, { total: number; open: number }>();
     for (const c of complaints) {
       const s = stats.get(c.customerId) ?? { total: 0, open: 0 };
       s.total++;
@@ -61,7 +61,7 @@ export default function Customers() {
               </thead>
               <tbody>
                 {list.slice(0, limit).map((c) => {
-                  const s = data!.stats.get(c.id!);
+                  const s = data!.stats.get(c.id);
                   return (
                     <tr key={c.id}>
                       <td>

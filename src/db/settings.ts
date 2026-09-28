@@ -10,8 +10,12 @@ export interface Brand {
 
 export interface AppSettings {
   companyName: string;
+  /** Signed-in person (set from the login, not stored). */
   currentUser: string;
+  currentUserEmail?: string;
   currency: string;
+  /** Dialling code used for WhatsApp/SMS links, e.g. 265 for Malawi. */
+  countryCode: string;
   ticketPrefix: string;
   brands: Brand[];
   categories: ProductCategory[];
@@ -39,6 +43,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   companyName: 'Somotex',
   currentUser: 'Service Desk',
   currency: 'MWK',
+  countryCode: '265',
   ticketPrefix: 'SMX',
   brands: [
     { name: 'Midea', inHouse: false },
@@ -96,5 +101,9 @@ export function mergeSettings(saved: Partial<AppSettings>): AppSettings {
 }
 
 export async function saveSettings(db: ServiceDB, s: AppSettings): Promise<void> {
-  await db.settings.put({ key: KEY, value: s });
+  // The signed-in user's name is per session, not a shared setting.
+  const { currentUser: _user, currentUserEmail: _email, ...shared } = s;
+  void _user;
+  void _email;
+  await db.settings.put({ id: KEY, value: shared });
 }

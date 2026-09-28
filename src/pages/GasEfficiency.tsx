@@ -30,12 +30,12 @@ interface Agg {
 }
 
 function aggregate(stats: GasJobStat[], keyOf: (s: GasJobStat) => string, labelOf: (s: GasJobStat) => string): Agg[] {
-  const map = new Map<string, Agg & { jobIds: Set<number> }>();
+  const map = new Map<string, Agg & { jobIds: Set<string> }>();
   for (const s of stats) {
     const key = keyOf(s);
     const a =
       map.get(key) ??
-      { key, label: labelOf(s), unit: s.unit, jobs: 0, actual: 0, actualWithBaseline: 0, expected: 0, excess: 0, excessCost: 0, cost: 0, jobIds: new Set<number>() };
+      { key, label: labelOf(s), unit: s.unit, jobs: 0, actual: 0, actualWithBaseline: 0, expected: 0, excess: 0, excessCost: 0, cost: 0, jobIds: new Set<string>() };
     a.jobIds.add(s.complaintId);
     a.actual += s.actual;
     a.cost += s.actual * s.unitCost;
@@ -72,9 +72,9 @@ export default function GasEfficiency() {
     const days = PERIODS.find((p) => p.key === period)!.days;
     const since = days ? new Date(Date.now() - days * 86400000).toISOString() : undefined;
     const stats = await gasJobStats(db, settings, since);
-    const technicians = new Map((await db.technicians.toArray()).map((t) => [t.id!, t.name]));
+    const technicians = new Map((await db.technicians.toArray()).map((t) => [t.id, t.name]));
     const complaints = new Map(
-      (await db.complaints.bulkGet([...new Set(stats.map((s) => s.complaintId))])).filter((c): c is Complaint => !!c).map((c) => [c.id!, c]),
+      (await db.complaints.bulkGet([...new Set(stats.map((s) => s.complaintId))])).filter((c): c is Complaint => !!c).map((c) => [c.id, c]),
     );
     return { stats, technicians, complaints };
   }, [period, settings]);
@@ -93,7 +93,7 @@ export default function GasEfficiency() {
     ref.filter((s) => s.expected !== undefined).map((s) => ({ technicianId: s.technicianId, expectedG: refG(s, s.expected!), actualG: refG(s, s.actual) })),
     settings.norms,
   );
-  const techCost = aggregate(stats, (s) => String(s.technicianId ?? 0), (s) => technicians.get(s.technicianId ?? -1) ?? 'Unassigned');
+  const techCost = aggregate(stats, (s) => String(s.technicianId ?? 0), (s) => technicians.get(s.technicianId ?? '') ?? 'Unassigned');
   const techRows = techCost.map((t) => ({ ...t, trend: trends.find((x) => String(x.technicianId) === t.key) }));
 
   const totalRefG = ref.reduce((t, s) => t + refG(s, s.actual), 0);
@@ -278,7 +278,7 @@ export default function GasEfficiency() {
                         <td className="num" style={{ color: 'var(--bad)' }}>
                           {Number.isFinite(w.pct) ? `+${Math.round(w.pct * 100)}%` : 'n/a'}
                         </td>
-                        <td className="hide-mobile">{technicians.get(w.technicianId ?? -1) ?? '—'}</td>
+                        <td className="hide-mobile">{technicians.get(w.technicianId ?? '') ?? '—'}</td>
                       </tr>
                     ))}
                   </tbody>

@@ -276,7 +276,7 @@ export type AlertCode = 'over-consumption' | 'unexpected-use' | 'refrigerant-mis
 
 export interface EvaluatedAlert {
   code: AlertCode;
-  itemId: number;
+  itemId: string;
   severity: AlertSeverity;
   expected: number;
   actual: number;
@@ -291,7 +291,7 @@ export interface MaterialUsage {
 }
 
 export interface PriorCharge {
-  complaintId: number;
+  complaintId: string;
   ticketNo: string;
   at: string;
 }
@@ -327,7 +327,7 @@ export function evaluateJob(
     if (eq.refrigerant && eq.refrigerant !== 'None' && u.item.refrigerant && u.item.refrigerant !== eq.refrigerant) {
       alerts.push({
         code: 'refrigerant-mismatch',
-        itemId: u.item.id!,
+        itemId: u.item.id,
         severity: 'critical',
         expected: 0,
         actual: grams,
@@ -338,7 +338,7 @@ export function evaluateJob(
   }
 
   if (refrigerantUsage.length > 0 && totalRefG > 0) {
-    const firstId = refrigerantUsage[0].item.id!;
+    const firstId = refrigerantUsage[0].item.id;
     const exp = expectedRefrigerant(eq, complaint.jobType, complaint.pipeLengthM, norms);
     if (exp.basis === 'unknown' && !(norms.jobs[complaint.jobType ?? 'Other']?.pipeCharge && exp.expectedG > 0)) {
       alerts.push({
@@ -402,7 +402,7 @@ export function evaluateJob(
     if (exp.expected === 0) {
       alerts.push({
         code: 'unexpected-use',
-        itemId: u.item.id!,
+        itemId: u.item.id,
         severity: 'warning',
         expected: 0,
         actual: u.qty,
@@ -416,7 +416,7 @@ export function evaluateJob(
     if (sev) {
       alerts.push({
         code: 'over-consumption',
-        itemId: u.item.id!,
+        itemId: u.item.id,
         severity: sev,
         expected: exp.expected,
         actual: u.qty,
@@ -430,7 +430,7 @@ export function evaluateJob(
 }
 
 export interface TechnicianTrend {
-  technicianId: number;
+  technicianId: string;
   jobs: number;
   expectedG: number;
   actualG: number;
@@ -444,11 +444,11 @@ export interface TechnicianTrend {
  * stands out.
  */
 export function technicianTrends(
-  jobs: { technicianId?: number; expectedG: number; actualG: number }[],
+  jobs: { technicianId?: string; expectedG: number; actualG: number }[],
   norms: ConsumptionNorms = DEFAULT_NORMS,
   minJobs = 3,
 ): TechnicianTrend[] {
-  const map = new Map<number, TechnicianTrend>();
+  const map = new Map<string, TechnicianTrend>();
   for (const j of jobs) {
     if (j.technicianId === undefined || j.expectedG <= 0 || j.actualG <= 0) continue;
     const t = map.get(j.technicianId) ?? {

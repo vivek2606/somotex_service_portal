@@ -230,3 +230,23 @@ dl.kv dd { margin: 0; }
 .empty { padding: 24px; text-align: center; color: var(--muted); }
 .loading { padding: 40px; text-align: center; color: var(--muted); }
 blockquote { margin: 0; padding: 8px 12px; border-left: 3px solid var(--ok); background: var(--ok-soft); border-radius: 6px; }
+
+/* ------------------------------------------------------------ sign-in */
+.auth-screen { min-height: 100%; display: grid; place-items: center; padding: 24px 16px; }
+.auth-card { width: 100%; max-width: 400px; }
+
+.sync { display: flex; align-items: center; gap: 6px; font-size: 0.8rem; color: var(--muted); padding: 6px 10px; }
+.sync .dot-status { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); flex: none; }
+.sync.syncing .dot-status { background: var(--primary); }
+.sync.offline .dot-status { background: var(--warn); }
+.sync.error .dot-status, .sync.rejected .dot-status { background: var(--bad); }
+.userbox { border-top: 1px solid var(--border); margin-top: 16px; padding: 12px 10px 0; font-size: 0.85rem; }
+.userbox .who { font-weight: 600; }
+
+@media print {
+  .sidebar, .bottomnav, .no-print, .topbar button, .topbar .btn { display: none !important; }
+  .shell { display: block; }
+  .main { padding: 0; }
+  body { background: #fff; color: #000; }
+  .card { box-shadow: none; border-color: #999; break-inside: avoid; }
+}

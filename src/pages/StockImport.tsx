@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { useAuth } from '../auth/AuthContext';
 import { useSettings } from '../components/SettingsContext';
 import { fmtNum, useAction } from '../components/ui';
 import { db } from '../db/db';
@@ -11,6 +12,8 @@ export default function StockImport() {
   const { run, busy } = useAction();
   const [sheet, setSheet] = useState<ParsedStockSheet>();
   const [result, setResult] = useState<StockImportResult>();
+  const { can } = useAuth();
+  if (!can('importStock')) return <p className="muted">Only the Service Head can import stock sheets.</p>;
 
   const load = async (file: File) => {
     setResult(undefined);

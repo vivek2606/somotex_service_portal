@@ -1,10 +1,11 @@
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useDeferredValue, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { useAuth } from '../auth/AuthContext';
 import { blankItem, ItemForm } from '../components/ItemForm';
 import { useSettings } from '../components/SettingsContext';
 import { Empty, fmtMoney, fmtNum, Loading, useAction } from '../components/ui';
-import { db } from '../db/db';
+import { db, newId } from '../db/db';
 import type { ItemType } from '../db/types';
 import { downloadText, toCsv } from '../lib/csv';
 
@@ -20,13 +21,14 @@ export default function Inventory() {
   const lowOnly = params.get('low') === '1';
   const [adding, setAdding] = useState(false);
   const { run, busy } = useAction();
+  const { can } = useAuth();
 
   const data = useLiveQuery(async () => {
     const items = await db.items.orderBy('name').toArray();
     // 30-day usage for days-of-cover.
     const since = new Date(Date.now() - 30 * 86400000).toISOString();
     const moves = await db.movements.where('at').aboveOrEqual(since).toArray();
-    const used = new Map<number, number>();
+    const used = new Map<string, number>();
     for (const m of moves) if (m.kind === 'Issue' || m.kind === 'Return') used.set(m.itemId, (used.get(m.itemId) ?? 0) - m.qty);
     return { items, used };
   }, []);
@@ -57,7 +59,7 @@ export default function Inventory() {
         ['SKU', 'Name', 'Type', 'Unit', 'Stock', 'Reorder Level', 'Unit Cost', 'Value', 'Used 30d', 'Compatibility', 'Location'],
         ...list.map((i) => [
           i.sku, i.name, i.type, i.unit, i.stock, i.reorderLevel, i.unitCost, i.stock * i.unitCost,
-          data!.used.get(i.id!) ?? 0, i.compatibility, i.location,
+          data!.used.get(i.id) ?? 0, i.compatibility, i.location,
         ]),
       ]),
     );
@@ -69,12 +71,19 @@ export default function Inventory() {
         <h1>Inventory</h1>
         <span className="spacer" />
         <button onClick={exportCsv}>Export CSV</button>
-        <Link to="/inventory/import" className="btn">
-          Import stock sheet
+        <Link to="/inventory/reorder" className="btn">
+          Reorder list
         </Link>
-        <button className="primary" onClick={() => setAdding(!adding)}>
-          {adding ? 'Cancel' : 'Add item'}
-        </button>
+        {can('importStock') && (
+          <Link to="/inventory/import" className="btn">
+            Import stock sheet
+          </Link>
+        )}
+        {can('editItems') && (
+          <button className="primary" onClick={() => setAdding(!adding)}>
+            {adding ? 'Cancel' : 'Add item'}
+          </button>
+        )}
       </div>
 
       {adding && (
@@ -87,7 +96,8 @@ export default function Inventory() {
             onSubmit={(d) =>
               run(async () => {
                 if (await db.items.where('sku').equals(d.sku).count()) throw new Error(`SKU ${d.sku} already exists`);
-                const id = await db.items.add({ ...d, stock: 0 });
+                const id = newId();
+                await db.items.add({ ...d, id, stock: 0 });
                 navigate(`/inventory/${id}`);
               }, 'Item created. Receive stock on the next screen.')
             }
@@ -131,7 +141,7 @@ export default function Inventory() {
               </thead>
               <tbody>
                 {list.map((i) => {
-                  const used = data!.used.get(i.id!) ?? 0;
+                  const used = data!.used.get(i.id) ?? 0;
                   const cover = used > 0 ? (i.stock / used) * 30 : undefined;
                   const low = i.stock <= i.reorderLevel;
                   return (
