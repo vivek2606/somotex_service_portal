@@ -1,0 +1,673 @@
+import { useLiveQuery } from 'dexie-react-hooks';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { Link, useParams } from 'react-router-dom';
+import { SuggestionPanel } from '../components/Diagnosis';
+import { useSettings } from '../components/SettingsContext';
+import {
+  Empty,
+  fmtDate,
+  fmtDateTime,
+  fmtDuration,
+  fmtNum,
+  Loading,
+  PriorityBadge,
+  SeverityBadge,
+  StatusBadge,
+  useAction,
+} from '../components/ui';
+import { db } from '../db/db';
+import {
+  acknowledgeAlert,
+  assignTechnician,
+  confirmedCauseCounts,
+  isOpen,
+  issueToComplaint,
+  logCustomerContact,
+  addLog,
+  materialUsage,
+  returnFromComplaint,
+  setStatus,
+  updateJobDetails,
+} from '../db/service';
+import { BRAZING_METHODS, CALL_OUTCOMES, GAS_TYPES, type BrazingMethod, type CallOutcome, type Complaint, type ComplaintStatus, type JobType } from '../db/types';
+import { expectedRefrigerant, issuePlan, JOB_TYPES, usesRefrigerant } from '../lib/consumption';
+import { causesFor, diagnose, questionnaire } from '../lib/diagnosis';
+
+const NEXT: Record<ComplaintStatus, ComplaintStatus[]> = {
+  Registered: ['Assigned', 'In Progress', 'Cancelled'],
+  Assigned: ['In Progress', 'Awaiting Parts', 'Resolved', 'Cancelled'],
+  'In Progress': ['Awaiting Parts', 'Resolved', 'Closed'],
+  'Awaiting Parts': ['In Progress', 'Resolved'],
+  Resolved: ['Closed', 'In Progress'],
+  Closed: ['In Progress'],
+  Cancelled: ['Registered'],
+};
+
+export default function ComplaintDetail() {
+  const id = Number(useParams().id);
+  const c = useLiveQuery(() => db.complaints.get(id), [id]);
+  if (c === undefined) return <Loading />;
+  return <Detail c={c} />;
+}
+
+function Detail({ c }: { c: Complaint }) {
+  const settings = useSettings();
+  const { run, busy } = useAction();
+  const id = c.id!;
+  const customer = useLiveQuery(() => db.customers.get(c.customerId), [c.customerId]);
+  const technicians = useLiveQuery(() => db.technicians.toArray(), []);
+  const logs = useLiveQuery(() => db.logs.where('complaintId').equals(id).reverse().sortBy('at'), [id]);
+  const alerts = useLiveQuery(() => db.alerts.where('complaintId').equals(id).toArray(), [id]);
+  const usage = useLiveQuery(() => materialUsage(db, id), [id, c.updatedAt, logs?.length]);
+  const items = useLiveQuery(() => db.items.filter((i) => i.active).sortBy('name'), []);
+  const confirmed = useLiveQuery(() => confirmedCauseCounts(db), []);
+  const tech = technicians?.find((t) => t.id === c.technicianId);
+
+  const overdue = isOpen(c) && new Date(c.dueAt).getTime() < Date.now();
+  const tat = c.resolvedAt ? new Date(c.resolvedAt).getTime() - new Date(c.createdAt).getTime() : undefined;
+
+  const diagnosis = useMemo(
+    () =>
+      diagnose(
+        c.equipment.category,
+        c.diagnosis?.answers ?? {},
+        `${c.complaintType} ${c.customerStatement ?? ''} ${c.description}`,
+        confirmed ?? {},
+        5,
+      ),
+    [c, confirmed],
+  );
+
+  const changeStatus = (s: ComplaintStatus) => {
+    const note = s === 'Cancelled' || (s === 'In Progress' && !isOpen(c)) ? prompt(`Reason for “${s}”?`) ?? undefined : undefined;
+    run(() => setStatus(db, settings, id, s, note), `Status changed to ${s}`);
+  };
+
+  return (
+    <div>
+      <div className="topbar">
+        <div>
+          <h1>
+            {c.ticketNo} <StatusBadge status={c.status} /> <PriorityBadge priority={c.priority} />
+          </h1>
+          <div className="small muted">
+            Logged {fmtDateTime(c.createdAt)} by {c.loggedBy} via {c.source} ·{' '}
+            {isOpen(c) ? (
+              <span style={{ color: overdue ? 'var(--bad)' : undefined }}>
+                {overdue ? 'Overdue by ' : 'Due in '}
+                {fmtDuration(new Date(c.dueAt).getTime() - Date.now())}
+              </span>
+            ) : (
+              tat !== undefined && <>Resolved in {fmtDuration(tat)}</>
+            )}
+          </div>
+        </div>
+        <span className="spacer" />
+        <div className="row">
+          {NEXT[c.status].map((s) => (
+            <button key={s} className={s === 'Closed' || s === 'Resolved' ? 'primary' : ''} disabled={busy} onClick={() => changeStatus(s)}>
+              {s === 'In Progress' && !isOpen(c) ? 'Re-open' : s}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="grid cols-2" style={{ alignItems: 'start' }}>
+        <div className="stack">
+          <div className="card">
+            <div className="grid cols-2">
+              <div>
+                <h3>Customer</h3>
+                {customer && (
+                  <dl className="kv">
+                    <dt>Name</dt>
+                    <dd>
+                      <Link to={`/customers/${customer.id}`}>{customer.name}</Link>
+                    </dd>
+                    <dt>Phone</dt>
+                    <dd>
+                      <a href={`tel:${customer.phone}`}>{customer.phone}</a>
+                      {customer.altPhone && <> · {customer.altPhone}</>}
+                    </dd>
+                    <dt>Address</dt>
+                    <dd>{[customer.address, customer.city].filter(Boolean).join(', ')}</dd>
+                    {c.callerName && (
+                      <>
+                        <dt>Caller</dt>
+                        <dd>
+                          {c.callerName} {c.callerPhone}
+                        </dd>
+                      </>
+                    )}
+                    {c.preferredVisit && (
+                      <>
+                        <dt>Visit</dt>
+                        <dd>{c.preferredVisit}</dd>
+                      </>
+                    )}
+                  </dl>
+                )}
+              </div>
+              <div>
+                <h3>Product</h3>
+                <dl className="kv">
+                  <dt>Unit</dt>
+                  <dd>
+                    {c.equipment.brand} {c.equipment.category}
+                  </dd>
+                  <dt>Model</dt>
+                  <dd>{c.equipment.model || '—'}</dd>
+                  <dt>Serial</dt>
+                  <dd>{c.equipment.serialNo || '—'}</dd>
+                  {c.equipment.capacity && (
+                    <>
+                      <dt>Capacity</dt>
+                      <dd>
+                        {fmtNum(c.equipment.capacity)} {c.equipment.capacityUnit}
+                        {c.equipment.refrigerant && c.equipment.refrigerant !== 'None' && <> · {c.equipment.refrigerant}</>}
+                      </dd>
+                    </>
+                  )}
+                  <dt>Warranty</dt>
+                  <dd>
+                    {c.equipment.warranty}
+                    {c.equipment.purchaseDate && <> · bought {fmtDate(c.equipment.purchaseDate)}</>}
+                  </dd>
+                </dl>
+              </div>
+            </div>
+          </div>
+
+          <div className="card">
+            <h2>{c.complaintType}</h2>
+            {c.customerStatement && (
+              <blockquote style={{ marginBottom: 10 }}>
+                “{c.customerStatement}”
+                <div className="small muted">Customer, at logging</div>
+              </blockquote>
+            )}
+            {c.description && <p>{c.description}</p>}
+            {c.diagnosis && Object.keys(c.diagnosis.answers).length > 0 && (
+              <details>
+                <summary className="small" style={{ cursor: 'pointer' }}>
+                  Helpdesk questionnaire ({Object.keys(c.diagnosis.answers).length} answers)
+                </summary>
+                <dl className="kv small" style={{ marginTop: 8 }}>
+                  {questionnaire(c.equipment.category)
+                    .filter((q) => c.diagnosis!.answers[q.id])
+                    .map((q) => (
+                      <FragmentKV key={q.id} k={q.text} v={c.diagnosis!.answers[q.id]} />
+                    ))}
+                </dl>
+              </details>
+            )}
+            <h3 style={{ marginTop: 14 }}>Likely causes</h3>
+            <SuggestionPanel diagnosis={{ ...diagnosis, advice: [] }} />
+          </div>
+
+          <JobCard c={c} />
+          <MaterialsCard c={c} usage={usage} items={items} />
+
+          {!!alerts?.length && (
+            <div className="card">
+              <h2>Consumption alerts</h2>
+              {alerts.map((a) => (
+                <div key={a.id} className={`alert-box ${a.severity}`}>
+                  <div className="row between">
+                    <SeverityBadge severity={a.severity} />
+                    {a.acknowledged ? (
+                      <span className="small muted">Reviewed: {a.ackNote}</span>
+                    ) : (
+                      <button
+                        className="sm"
+                        onClick={() => {
+                          const note = prompt('Review note (why was this acceptable, or what action was taken?)');
+                          if (note !== null) run(() => acknowledgeAlert(db, settings, a.id!, note), 'Alert reviewed');
+                        }}
+                      >
+                        Mark reviewed
+                      </button>
+                    )}
+                  </div>
+                  <p style={{ margin: '6px 0 0' }}>{a.message}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="stack">
+          <div className="card">
+            <h2>Technician</h2>
+            <div className="row">
+              <select
+                value={c.technicianId ?? ''}
+                disabled={busy}
+                onChange={(e) => e.target.value && run(() => assignTechnician(db, settings, id, Number(e.target.value)), 'Technician assigned')}
+                style={{ flex: 1 }}
+              >
+                <option value="">Unassigned</option>
+                {technicians
+                  ?.filter((t) => t.active || t.id === c.technicianId)
+                  .map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                    </option>
+                  ))}
+              </select>
+              {tech && (
+                <a className="btn" href={`tel:${tech.phone}`}>
+                  Call
+                </a>
+              )}
+            </div>
+          </div>
+
+          <CustomerContactCard complaintId={id} />
+          <NoteCard complaintId={id} />
+
+          <div className="card">
+            <h2>Timeline</h2>
+            {!logs?.length ? (
+              <Empty>No activity yet.</Empty>
+            ) : (
+              <ul className="timeline">
+                {logs.map((l) => (
+                  <li key={l.id} className={l.kind}>
+                    <div>
+                      {l.outcome && <span className="badge ok" style={{ marginRight: 6 }}>{l.outcome}</span>}
+                      {l.text}
+                    </div>
+                    <div className="meta">
+                      {fmtDateTime(l.at)} · {l.by}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FragmentKV({ k, v }: { k: string; v: string }) {
+  return (
+    <>
+      <dt style={{ whiteSpace: 'normal' }}>{k}</dt>
+      <dd>{v}</dd>
+    </>
+  );
+}
+
+function JobCard({ c }: { c: Complaint }) {
+  const settings = useSettings();
+  const { run, busy } = useAction();
+  const [f, setF] = useState(() => pickJob(c));
+  useEffect(() => setF(pickJob(c)), [c]);
+  const causes = causesFor(c.equipment.category);
+  const hasGas = usesRefrigerant(c.equipment.category);
+  const num = (v: string) => (v === '' ? undefined : Number(v));
+  const exp = hasGas ? expectedRefrigerant(c.equipment, f.jobType, f.pipeLengthM, settings.norms) : undefined;
+
+  const save = (e: FormEvent) => {
+    e.preventDefault();
+    run(() => updateJobDetails(db, settings, c.id!, f), 'Job details saved');
+  };
+
+  return (
+    <form className="card" onSubmit={save}>
+      <h2>Job &amp; closure</h2>
+      <div className="form-grid">
+        <label className="field">
+          Job type
+          <select value={f.jobType ?? ''} onChange={(e) => setF({ ...f, jobType: (e.target.value || undefined) as JobType })}>
+            <option value="">Select…</option>
+            {JOB_TYPES.map((j) => (
+              <option key={j}>{j}</option>
+            ))}
+          </select>
+        </label>
+        {hasGas && (
+          <>
+            <label className="field">
+              Total pipe length (m)
+              <input type="number" inputMode="decimal" min="0" step="any" value={f.pipeLengthM ?? ''} onChange={(e) => setF({ ...f, pipeLengthM: num(e.target.value) })} />
+            </label>
+            <label className="field">
+              Brazed joints
+              <input type="number" inputMode="numeric" min="0" value={f.brazedJoints ?? ''} onChange={(e) => setF({ ...f, brazedJoints: num(e.target.value) })} />
+            </label>
+            <label className="field">
+              Brazing method
+              <select value={f.brazingMethod ?? ''} onChange={(e) => setF({ ...f, brazingMethod: (e.target.value || undefined) as BrazingMethod })}>
+                <option value="">—</option>
+                {BRAZING_METHODS.map((m) => (
+                  <option key={m}>{m}</option>
+                ))}
+              </select>
+            </label>
+            <label className="field inline" style={{ alignSelf: 'end', minHeight: 38 }}>
+              <input type="checkbox" checked={!!f.nitrogenPurged} onChange={(e) => setF({ ...f, nitrogenPurged: e.target.checked })} />
+              Nitrogen purge while brazing
+            </label>
+            <label className="field">
+              Circuit flushed (m)
+              <input type="number" inputMode="decimal" min="0" step="any" value={f.flushedPipeM ?? ''} onChange={(e) => setF({ ...f, flushedPipeM: num(e.target.value) })} />
+            </label>
+            <label className="field">
+              Refrigerant recovered (g)
+              <input type="number" inputMode="numeric" min="0" value={f.recoveredG ?? ''} onChange={(e) => setF({ ...f, recoveredG: num(e.target.value) })} />
+            </label>
+            <label className="field inline" style={{ alignSelf: 'end', minHeight: 38 }}>
+              <input type="checkbox" checked={!!f.pressureTested} onChange={(e) => setF({ ...f, pressureTested: e.target.checked })} />
+              Nitrogen pressure test done
+            </label>
+          </>
+        )}
+        <label className="field span-all">
+          Confirmed cause
+          <select value={f.confirmedCauseId ?? ''} onChange={(e) => setF({ ...f, confirmedCauseId: e.target.value || undefined })}>
+            <option value="">Select the actual cause…</option>
+            {causes.map((x) => (
+              <option key={x.id} value={x.id}>
+                {x.name}
+              </option>
+            ))}
+            <option value="other">Other (describe below)</option>
+          </select>
+          <span className="hint">This improves future suggestions for this product type.</span>
+        </label>
+        <label className="field span-all">
+          Root cause / findings
+          <textarea value={f.rootCause ?? ''} onChange={(e) => setF({ ...f, rootCause: e.target.value })} />
+        </label>
+        <label className="field span-all">
+          Resolution / work done *
+          <textarea value={f.resolution ?? ''} onChange={(e) => setF({ ...f, resolution: e.target.value })} />
+        </label>
+        <label className="field">
+          Service charge ({settings.currency})
+          <input type="number" inputMode="numeric" min="0" value={f.serviceCharge ?? ''} onChange={(e) => setF({ ...f, serviceCharge: num(e.target.value) })} />
+        </label>
+        <label className="field">
+          Customer feedback
+          <select
+            value={f.customerFeedback ?? ''}
+            onChange={(e) => setF({ ...f, customerFeedback: (num(e.target.value) as Complaint['customerFeedback']) ?? undefined })}
+          >
+            <option value="">—</option>
+            {[5, 4, 3, 2, 1].map((n) => (
+              <option key={n} value={n}>
+                {'★'.repeat(n)} ({n})
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      {hasGas && (f.brazedJoints ?? 0) > 0 && !f.nitrogenPurged && (
+        <p className="small" style={{ marginTop: 10, color: 'var(--warn)' }}>
+          Brazing without a nitrogen purge leaves oxide scale that can block the capillary or expansion valve and bring the unit back.
+        </p>
+      )}
+      {exp && exp.expectedG > 0 && (
+        <p className="small muted" style={{ marginTop: 10 }}>
+          Refrigerant budget for this job: <strong>{exp.expectedG} g</strong> ({exp.breakdown.join('; ')})
+        </p>
+      )}
+      <div className="row" style={{ marginTop: 12 }}>
+        <button type="submit" className="primary" disabled={busy}>
+          Save job details
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function pickJob(c: Complaint) {
+  return {
+    jobType: c.jobType,
+    pipeLengthM: c.pipeLengthM,
+    brazedJoints: c.brazedJoints,
+    brazingMethod: c.brazingMethod,
+    nitrogenPurged: c.nitrogenPurged,
+    flushedPipeM: c.flushedPipeM,
+    pressureTested: c.pressureTested,
+    recoveredG: c.recoveredG,
+    confirmedCauseId: c.confirmedCauseId,
+    rootCause: c.rootCause,
+    resolution: c.resolution,
+    serviceCharge: c.serviceCharge,
+    customerFeedback: c.customerFeedback,
+  };
+}
+
+function MaterialsCard({
+  c,
+  usage,
+  items,
+}: {
+  c: Complaint;
+  usage: Awaited<ReturnType<typeof materialUsage>> | undefined;
+  items: import('../db/types').InventoryItem[] | undefined;
+}) {
+  const settings = useSettings();
+  const { run, busy } = useAction();
+  const [itemId, setItemId] = useState<number | ''>('');
+  const [qty, setQty] = useState('');
+  const [reason, setReason] = useState('');
+  const item = items?.find((i) => i.id === itemId);
+  const plan = item && GAS_TYPES.includes(item.type) ? issuePlan(item, c, settings.norms) : undefined;
+  const used = usage?.find((u) => u.item.id === itemId)?.qty ?? 0;
+  const q = Number(qty);
+  const over = !!plan && q > 0 && used + q > plan.limit;
+
+  // Gases the job is likely to need, shown as a budget the store issues against.
+  const budget = useMemo(() => {
+    if (!items) return [];
+    return items
+      .filter((i) => GAS_TYPES.includes(i.type))
+      .filter((i) => i.type !== 'Refrigerant' || !c.equipment.refrigerant || i.refrigerant === c.equipment.refrigerant)
+      .filter((i) => !(i.brazingMethod && c.brazingMethod && i.brazingMethod !== c.brazingMethod) || (usage?.some((u) => u.item.id === i.id) ?? false))
+      .map((i) => ({ item: i, plan: issuePlan(i, c, settings.norms), used: usage?.find((u) => u.item.id === i.id)?.qty ?? 0 }))
+      .filter((b) => (b.plan && b.plan.expected > 0) || b.used > 0);
+  }, [items, c, settings.norms, usage]);
+
+  const issue = (e: FormEvent) => {
+    e.preventDefault();
+    if (!itemId) return;
+    run(async () => {
+      await issueToComplaint(db, settings, c.id!, itemId, q, reason.trim() || undefined);
+      setQty('');
+      setReason('');
+    }, 'Issued');
+  };
+
+  return (
+    <div className="card">
+      <h2>Spares, gas &amp; consumables</h2>
+      {budget.length > 0 && (
+        <>
+          <h3>Gas budget for this job</h3>
+          <div className="table-wrap" style={{ marginBottom: 12 }}>
+            <table>
+              <thead>
+                <tr>
+                  <th>Item</th>
+                  <th className="num">Budget</th>
+                  <th className="num">Used</th>
+                  <th style={{ width: '30%' }}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {budget.map((b) => {
+                  const pct = b.plan && b.plan.expected > 0 ? (b.used / b.plan.expected) * 100 : b.used > 0 ? 200 : 0;
+                  const tone = b.plan && b.used > b.plan.limit ? 'bad' : pct > 100 ? 'warn' : '';
+                  return (
+                    <tr key={b.item.id} title={b.plan?.breakdown.join('\n')}>
+                      <td>{b.item.name}</td>
+                      <td className="num">
+                        {b.plan ? fmtNum(b.plan.expected, 3) : '—'} {b.item.unit}
+                      </td>
+                      <td className="num">
+                        {fmtNum(b.used, 3)} {b.item.unit}
+                      </td>
+                      <td>
+                        <div className={`bar ${tone}`}>
+                          <span style={{ width: `${Math.min(100, pct)}%` }} />
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <p className="small muted">
+            Budgets update as you record the job type, pipe length, joints, flushing and pressure test. Returns of unused gas reduce “Used”.
+          </p>
+        </>
+      )}
+
+      <form onSubmit={issue} className="form-grid" style={{ marginTop: 8 }}>
+        <label className="field span-all">
+          Issue from store
+          <select value={itemId} onChange={(e) => setItemId(e.target.value ? Number(e.target.value) : '')}>
+            <option value="">Select item…</option>
+            {items?.map((i) => (
+              <option key={i.id} value={i.id} disabled={i.stock <= 0}>
+                {i.name} — {fmtNum(i.stock, 3)} {i.unit} in stock
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="field">
+          Quantity {item && `(${item.unit})`}
+          <input type="number" inputMode="decimal" min="0" step="any" value={qty} onChange={(e) => setQty(e.target.value)} />
+          {plan && (
+            <span className="hint">
+              Recommended: {fmtNum(Math.max(0, plan.expected - used), 3)} {plan.unit} (limit {fmtNum(plan.limit, 3)} {plan.unit} in total)
+            </span>
+          )}
+        </label>
+        <label className="field">
+          {over ? 'Reason for issuing over budget *' : 'Note'}
+          <input value={reason} onChange={(e) => setReason(e.target.value)} required={over} placeholder={over ? 'e.g. long pipe run, second leak found' : ''} />
+        </label>
+        <div className="span-all">
+          {over && <p className="error">This goes over the gas budget for this job. A reason is required and will be flagged for review.</p>}
+          <button type="submit" className="primary" disabled={busy || !itemId || !(q > 0)}>
+            Issue
+          </button>
+        </div>
+      </form>
+
+      <h3 style={{ marginTop: 16 }}>Used on this job</h3>
+      {!usage?.length ? (
+        <Empty>Nothing issued yet.</Empty>
+      ) : (
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Item</th>
+                <th className="num">Qty</th>
+                <th className="num hide-mobile">Cost</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {usage.map((u) => (
+                <tr key={u.item.id}>
+                  <td>
+                    <Link to={`/inventory/${u.item.id}`}>{u.item.name}</Link>
+                  </td>
+                  <td className="num">
+                    {fmtNum(u.qty, 3)} {u.item.unit}
+                  </td>
+                  <td className="num hide-mobile">{fmtNum(u.qty * u.item.unitCost, 0)}</td>
+                  <td className="right">
+                    <button
+                      className="sm"
+                      disabled={busy}
+                      onClick={() => {
+                        const v = prompt(`Return how much ${u.item.name} (${u.item.unit}) to store?`, String(u.qty));
+                        if (v) run(() => returnFromComplaint(db, settings, c.id!, u.item.id!, Number(v)), 'Returned to store');
+                      }}
+                    >
+                      Return
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CustomerContactCard({ complaintId }: { complaintId: number }) {
+  const settings = useSettings();
+  const { run, busy } = useAction();
+  const [outcome, setOutcome] = useState<CallOutcome>('Customer reached');
+  const [text, setText] = useState('');
+  return (
+    <form
+      className="card"
+      onSubmit={(e) => {
+        e.preventDefault();
+        run(async () => {
+          await logCustomerContact(db, settings, complaintId, outcome, text);
+          setText('');
+        }, 'Customer call logged');
+      }}
+    >
+      <h2>Customer call</h2>
+      <div className="form-grid">
+        <label className="field span-all">
+          Outcome
+          <select value={outcome} onChange={(e) => setOutcome(e.target.value as CallOutcome)}>
+            {CALL_OUTCOMES.map((o) => (
+              <option key={o}>{o}</option>
+            ))}
+          </select>
+        </label>
+        <label className="field span-all">
+          Customer's response
+          <textarea value={text} onChange={(e) => setText(e.target.value)} placeholder="What the customer said" />
+        </label>
+      </div>
+      <button type="submit" disabled={busy} style={{ marginTop: 10 }}>
+        Log call
+      </button>
+    </form>
+  );
+}
+
+function NoteCard({ complaintId }: { complaintId: number }) {
+  const settings = useSettings();
+  const { run, busy } = useAction();
+  const [text, setText] = useState('');
+  return (
+    <form
+      className="card"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (!text.trim()) return;
+        run(async () => {
+          await addLog(db, complaintId, 'note', text.trim(), settings.currentUser);
+          setText('');
+        });
+      }}
+    >
+      <h2>Internal note</h2>
+      <textarea value={text} onChange={(e) => setText(e.target.value)} placeholder="Visible to the service team only" />
+      <button type="submit" disabled={busy || !text.trim()} style={{ marginTop: 10 }}>
+        Add note
+      </button>
+    </form>
+  );
+}
