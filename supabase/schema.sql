@@ -436,9 +436,9 @@ begin
     total := total + n;
   end loop;
   -- With no real complaints yet, ticket numbers start again from 1.
-  -- (Supabase refuses a DELETE without WHERE, hence "where true".)
+  -- (Supabase refuses a DELETE without a WHERE clause.)
   if not exists (select 1 from public.complaints) then
-    delete from public.ticket_counters where true;
+    delete from public.ticket_counters where stem is not null;
   end if;
   insert into public.settings (id, data) values ('app', jsonb_build_object('value', jsonb_build_object('demoPurgedAt', now())))
     on conflict (id) do update
