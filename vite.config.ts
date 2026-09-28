@@ -1,10 +1,24 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import { execSync } from 'node:child_process';
 import { VitePWA } from 'vite-plugin-pwa';
+
+// Shown in the app so anyone can tell which version they are running.
+function version() {
+  const sha = process.env.VERCEL_GIT_COMMIT_SHA ?? process.env.GITHUB_SHA ?? (() => {
+    try {
+      return execSync('git rev-parse HEAD').toString().trim();
+    } catch {
+      return 'dev';
+    }
+  })();
+  return `${sha.slice(0, 7)} · ${new Date().toISOString().slice(0, 16).replace('T', ' ')} UTC`;
+}
 
 // Relative base so the build works from any sub-path (e.g. GitHub Pages).
 export default defineConfig({
   base: './',
+  define: { __APP_VERSION__: JSON.stringify(version()) },
   plugins: [
     react(),
     VitePWA({

@@ -128,6 +128,9 @@ function Shell() {
           </button>
         </div>
         <SyncStatus />
+        <div className="small muted" style={{ padding: '4px 10px' }} title="App version">
+          v {__APP_VERSION__}
+        </div>
       </aside>
       <main className="main">
         {!online && <div className="offline">You're offline. Changes are saved on this device and sent when the connection returns.</div>}

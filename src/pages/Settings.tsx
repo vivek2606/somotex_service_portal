@@ -354,6 +354,9 @@ function AccountTab() {
         <p className="small muted" style={{ marginTop: 10 }}>
           Your name and email are recorded on every complaint, call, stock movement and closure you make.
         </p>
+        <p className="small muted">
+          App version {__APP_VERSION__} · {runtime.cloud ? 'shared database' : 'single-device mode'}
+        </p>
       </div>
       <div className="card">
         <h2>Change password</h2>

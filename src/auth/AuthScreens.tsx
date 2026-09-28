@@ -17,6 +17,9 @@ function Frame({ title, subtitle, children }: { title: string; subtitle?: string
         <h1 style={{ marginBottom: 4 }}>{title}</h1>
         {subtitle && <p className="muted small">{subtitle}</p>}
         {children}
+        <p className="small muted" style={{ marginTop: 16, marginBottom: 0 }}>
+          Version {__APP_VERSION__}
+        </p>
       </div>
     </div>
   );
