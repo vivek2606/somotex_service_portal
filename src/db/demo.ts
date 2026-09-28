@@ -118,6 +118,7 @@ const SCENARIOS: Record<string, Scenario> = {
     complaintType: 'Not cooling / low cooling',
     statements: [
       'The AC runs but only blows normal air, it stopped cooling two days ago.',
+      'Since NEPA brought light back yesterday, the AC dey blow only hot air. Abeg send person.',
       'It is not cooling at all, the outdoor unit is running and there is some ice on the small pipe.',
       'Cooling is very weak since last week, they refilled gas last year also.',
     ],
@@ -135,7 +136,7 @@ const SCENARIOS: Record<string, Scenario> = {
   acTopUp: {
     units: ['chigoSplit9', 'mideaSplit12', 'tamashiSplit12', 'auxSplit12'],
     complaintType: 'Not cooling / low cooling',
-    statements: ['Cooling is less than before, please come and refill the gas.', 'The room takes very long to cool now.'],
+    statements: ['Cooling is less than before, please come and refill the gas.', 'The room takes very long to cool now.', 'The AC no dey cool again like before, e be like say gas don finish.'],
     answers: { power: 'Yes', fan: 'Yes', air: 'Slightly cool', outdoor: 'Yes', service: '> 1 year' },
     job: 'Gas Top-up',
     cause: 'ac-gas-leak',
@@ -146,7 +147,7 @@ const SCENARIOS: Record<string, Scenario> = {
   acCapacitor: {
     units: ['mideaSplit18', 'tamashiSplit12', 'bruhmSplit12', 'sharpSplit18'],
     complaintType: 'Not cooling / low cooling',
-    statements: ['Indoor unit is on but the outdoor unit is not starting, only humming.', 'Fan blows but no cooling, outside unit silent.'],
+    statements: ['Indoor unit is on but the outdoor unit is not starting, only humming.', 'Fan blows but no cooling, outside unit silent.', 'After the light went off and came back on the generator, the outside unit stopped working.'],
     answers: { power: 'Yes', fan: 'Yes', air: 'Room temperature', outdoor: 'No' },
     job: 'PCB / Electrical Repair',
     cause: 'ac-capacitor',
@@ -211,7 +212,7 @@ const SCENARIOS: Record<string, Scenario> = {
   fridgeLeak: {
     units: ['bekoFridge', 'bruhmFridge', 'tamashiFreezer', 'bruhmFreezer', 'tamashiDisplay', 'sharpFridge'],
     complaintType: 'Not cooling / low cooling',
-    statements: ['The freezer is not freezing, the motor runs all the time.', 'Fridge is warm inside but I can hear the compressor running.'],
+    statements: ['The freezer is not freezing, the motor runs all the time.', 'Fridge is warm inside but I can hear the compressor running.', 'My chest freezer no dey freeze again, the fish don start to spoil.'],
     answers: { power: 'Yes', comp: 'Yes', cool: 'Nothing cools', frost: 'No', regas: "Don't know" },
     job: 'Leak Repair + Full Recharge',
     cause: 'fr-gas-leak',
@@ -268,7 +269,7 @@ const SCENARIOS: Record<string, Scenario> = {
   cookerLeak: {
     units: ['tamashiCooker', 'bruhmCooker'],
     complaintType: 'Burner / ignition fault',
-    statements: ['There is a gas smell in the kitchen near the cooker even when it is off.'],
+    statements: ['There is a gas smell in the kitchen near the cooker even when it is off.', 'I dey perceive gas for kitchen even when the cooker is off.'],
     answers: { smell: 'Yes', spark: 'Yes', flame: 'Normal blue' },
     job: 'Mechanical Repair',
     cause: 'gc-leak',

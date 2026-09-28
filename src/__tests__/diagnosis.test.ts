@@ -56,3 +56,12 @@ describe('refrigerant detection in stock sheets', () => {
     expect(rows.map((r) => r.refrigerant)).toEqual(['R600a', 'R600a', 'R290', 'R22']);
   });
 });
+
+describe('Nigerian phrasing', () => {
+  it('understands common Pidgin descriptions', () => {
+    expect(diagnose('Residential AC', {}, 'The AC no dey cool again, e be like say gas don finish').suggestions[0].cause.id).toBe('ac-gas-leak');
+    expect(diagnose('Chest Freezer', {}, 'My chest freezer no dey freeze again').suggestions[0].cause.id).toBe('fr-gas-leak');
+    expect(diagnose('Gas Cooker', {}, 'I dey perceive gas for kitchen').suggestions[0].cause.id).toBe('gc-leak');
+    expect(diagnose('Residential AC', {}, 'Since NEPA brought light the outside unit stopped').suggestions.some((s) => s.cause.id === 'ac-power')).toBe(true);
+  });
+});

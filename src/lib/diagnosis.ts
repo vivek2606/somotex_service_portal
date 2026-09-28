@@ -93,7 +93,7 @@ const KB: Record<ProductGroup, GroupDef> = {
           { q: 'regas', a: 'Yes', w: 3 },
           { q: 'fan', a: 'Yes', w: 1 },
         ],
-        keywords: [[/gas|not cool|low cool|less cool|no cool|ice|frost|hiss/, 2]],
+        keywords: [[/gas|not cool|low cool|less cool|no cool|no dey cool|hot air|ice|frost|hiss/, 2]],
       },
       {
         id: 'ac-dirty',
@@ -267,7 +267,7 @@ const KB: Record<ProductGroup, GroupDef> = {
           { q: 'regas', a: 'Yes', w: 3 },
           { q: 'frost', a: 'No', w: 1 },
         ],
-        keywords: [[/gas|not cool|no cool|warm|not freez/, 2]],
+        keywords: [[/gas|not cool|no cool|no dey cool|warm|not freez|no dey freeze|spoil/, 2]],
       },
       {
         id: 'fr-relay',
@@ -631,7 +631,7 @@ const KB: Record<ProductGroup, GroupDef> = {
         carry: ['Gas hose', 'Regulator', 'Hose clamps', 'Thread seal'],
         jobType: 'Mechanical Repair',
         evidence: [{ q: 'smell', a: 'Yes', w: 6 }],
-        keywords: [[/smell|leak|gas escap/, 4]],
+        keywords: [[/smell|perceive gas|leak|gas escap/, 4]],
       },
       {
         id: 'gc-ignition',
