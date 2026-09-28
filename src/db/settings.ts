@@ -23,6 +23,8 @@ export interface AppSettings {
   /** SLA target resolution time in hours, by priority. */
   slaHours: Record<Priority, number>;
   norms: ConsumptionNorms;
+  /** Set by the server when demo data is removed, so every device drops its copy. */
+  demoPurgedAt?: string;
 }
 
 export const PRODUCT_CATEGORIES: ProductCategory[] = [

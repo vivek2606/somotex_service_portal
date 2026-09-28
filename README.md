@@ -54,6 +54,8 @@ On Netlify it's the same: import the repository, then add both variables under *
    - reviews **Settings** (company name, dialling code, target times, gas norms)
 4. On each computer, open the address in Chrome or Edge and choose **Install app**, so it opens like a normal program.
 
+**Trying it out first:** the Service Head can use **Settings → Data & backup → Load demo data**. It adds about two months of sample customers, complaints, stock and gas use, so the reports and alerts have something to show. **Remove demo data** takes it all out again, on every computer, and leaves anything real untouched. Remove it before real use; ticket numbers then restart from 1.
+
 **Forgotten password:** the Service Head uses **Users → Reset password** and gives the person the new temporary password.
 
 **Leaving staff:** use **Disable**. They can no longer sign in or see any data, and their past entries keep their name.

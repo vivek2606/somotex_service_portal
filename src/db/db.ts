@@ -94,9 +94,18 @@ function markLocalChanges(db: ServiceDB) {
   }
 }
 
-export const newId = () => crypto.randomUUID();
+/** How the app is running, plus hooks used when generating demo data. */
+export const runtime = {
+  /** Shared through the server (true) or single device. */
+  cloud: false,
+  /** Clock used for new records; demo data back-dates it. */
+  now: () => new Date(),
+  /** Prefix for new record ids; demo data uses DEMO_PREFIX so it can be removed later. */
+  idPrefix: '',
+};
 
-/** How the app is running: single device, or shared through the server. */
-export const runtime = { cloud: false };
+export const DEMO_PREFIX = 'demo-';
+
+export const newId = () => runtime.idPrefix + crypto.randomUUID();
 
 export const db = new ServiceDB();

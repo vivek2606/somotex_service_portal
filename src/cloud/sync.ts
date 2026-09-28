@@ -7,6 +7,7 @@
 
 import { liveQuery, type Subscription } from 'dexie';
 import { APPEND_ONLY, LOCAL_FIELDS, SYNCED_TABLES, type ServiceDB, type SyncedTable } from '../db/db';
+import { purgeLocalDemo } from '../db/demo';
 import { recomputeStock } from '../db/service';
 
 export interface RemoteRow {
@@ -177,6 +178,10 @@ export class SyncEngine {
   private async push() {
     for (const table of SYNCED_TABLES) {
       const rows = (await this.db.table(table).where('_dirty').equals(1).toArray()) as Record<string, unknown>[];
+      // Send in the order things happened: a receipt must reach the server
+      // before the issue that draws on it, or the issue is refused.
+      const when = (r: Record<string, unknown>) => String(r.at ?? r.createdAt ?? '');
+      rows.sort((x, y) => when(x).localeCompare(when(y)));
       for (let i = 0; i < rows.length; i += CHUNK) {
         await this.pushChunk(table, rows.slice(i, i + CHUNK));
       }
@@ -305,5 +310,17 @@ export class SyncEngine {
       }
       if (touchedItems.size) await recomputeStock(this.db, touchedItems);
     });
+    if (table === 'settings') await this.followDemoPurge();
+  }
+
+  /** When the Service Head removes demo data, drop this device's copy too. */
+  private async followDemoPurge() {
+    const value = (await this.db.settings.get('app'))?.value as { demoPurgedAt?: string } | undefined;
+    const purgedAt = value?.demoPurgedAt;
+    if (!purgedAt) return;
+    const seen = (await this.db.meta.get('demoPurgedAt'))?.value;
+    if (seen === purgedAt) return;
+    await purgeLocalDemo(this.db);
+    await this.db.meta.put({ key: 'demoPurgedAt', value: purgedAt });
   }
 }

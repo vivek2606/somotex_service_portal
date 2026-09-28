@@ -386,6 +386,39 @@ language sql security definer set search_path = public as $$
   update public.profiles set must_change_password = false where id = auth.uid();
 $$;
 
+-- ------------------------------------------------------------- demo data
+-- Sample records created with "Load demo data" have ids starting "demo-".
+-- This removes them all and tells every device to drop its copies.
+create or replace function public.purge_demo_data() returns integer
+language plpgsql security definer set search_path = public as $$
+declare
+  t text;
+  n integer;
+  total integer := 0;
+begin
+  if not public.is_head() then
+    raise exception 'Only the Service Head can remove demo data' using errcode = '42501';
+  end if;
+  foreach t in array array['alerts', 'logs', 'movements', 'complaints', 'customers', 'technicians'] loop
+    execute format('delete from public.%I where id like %L', t, 'demo-%');
+    get diagnostics n = row_count;
+    total := total + n;
+  end loop;
+  -- With no real complaints yet, ticket numbers start again from 1.
+  if not exists (select 1 from public.complaints) then
+    delete from public.ticket_counters;
+  end if;
+  insert into public.settings (id, data) values ('app', jsonb_build_object('value', jsonb_build_object('demoPurgedAt', now())))
+    on conflict (id) do update
+    set data = jsonb_set(coalesce(public.settings.data, '{}'::jsonb), '{value}',
+      coalesce(public.settings.data -> 'value', '{}'::jsonb) || jsonb_build_object('demoPurgedAt', now()));
+  return total;
+end;
+$$;
+
+revoke all on function public.purge_demo_data() from public;
+grant execute on function public.purge_demo_data() to authenticated;
+
 revoke all on function public.create_staff_user(text, text, text, text) from public;
 revoke all on function public.reset_staff_password(uuid, text) from public;
 revoke all on function public.update_staff(uuid, text, text, boolean) from public;

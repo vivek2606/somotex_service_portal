@@ -26,17 +26,17 @@ import type {
   StockMovement,
 } from './types';
 
-const nowIso = () => new Date().toISOString();
+const nowIso = () => runtime.now().toISOString();
 
 /** Prefix of ticket numbers waiting for the server to assign the real one. */
 export const TEMP_TICKET = 'TMP-';
 
 export const isTempTicket = (t: string) => t.startsWith(TEMP_TICKET);
 
-export async function nextTicketNo(db: ServiceDB, prefix: string, at = new Date()): Promise<string> {
+export async function nextTicketNo(db: ServiceDB, prefix: string, at = runtime.now()): Promise<string> {
   // With a shared server, numbers are assigned centrally so two PCs never
   // issue the same one; until then the ticket carries a temporary number.
-  if (runtime.cloud) return TEMP_TICKET + newId().slice(0, 8).toUpperCase();
+  if (runtime.cloud) return TEMP_TICKET + crypto.randomUUID().slice(0, 13).toUpperCase();
   const stem = `${prefix}-${at.getFullYear()}-`;
   const existing = await db.complaints.where('ticketNo').between(stem, stem + '￿').primaryKeys();
   const numbers = (await db.complaints.bulkGet(existing)).map((c) => Number(c!.ticketNo.slice(stem.length)) || 0);
@@ -67,7 +67,7 @@ export async function createComplaint(db: ServiceDB, settings: AppSettings, inpu
       customerId = newId();
       await db.customers.add({ ...input.customer, id: customerId, createdAt: nowIso() });
     }
-    const created = new Date();
+    const created = runtime.now();
     const due = new Date(created.getTime() + settings.slaHours[input.priority] * 3600000);
     const { customer: _customer, ...rest } = input;
     void _customer;

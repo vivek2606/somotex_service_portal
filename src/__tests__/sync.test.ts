@@ -2,6 +2,7 @@ import 'fake-indexeddb/auto';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { RemoteError, SyncEngine, type Remote, type RemoteRow } from '../cloud/sync';
 import { runtime, ServiceDB } from '../db/db';
+import { hasDemoData, loadDemoData, purgeLocalDemo } from '../db/demo';
 import { createComplaint, issueToComplaint, receiveStock, setStatus, updateJobDetails } from '../db/service';
 import { DEFAULT_SETTINGS } from '../db/settings';
 
@@ -178,5 +179,48 @@ describe('sync between two devices', () => {
     await syncB.syncNow();
     expect(server.clock).toBe(before);
     expect(syncB.state.pending).toBe(0);
+  });
+});
+
+describe('upload order', () => {
+  it('sends a receipt before the issue that uses it, even when made offline', async () => {
+    const id = await createComplaint(a, settingsA, newComplaint());
+    // Many receipts and issues made offline; ids are random, so storage order is too.
+    for (let i = 0; i < 20; i++) {
+      await receiveStock(a, settingsA, R32, 1);
+      await issueToComplaint(a, settingsA, id, R32, 1, 'job');
+    }
+    await syncA.syncNow();
+    expect(syncA.state.rejected).toBe(0);
+    expect(syncA.state.pending).toBe(0);
+    await syncB.syncNow();
+    expect((await b.items.get(R32))!.stock).toBe(0);
+  });
+});
+
+describe('demo data across devices', () => {
+  it('uploads demo data and removes it everywhere when the head purges it', async () => {
+    await loadDemoData(a, settingsA, 20);
+    await syncA.syncNow();
+    expect(syncA.state.rejected).toBe(0);
+    expect(syncA.state.pending).toBe(0);
+    await syncB.syncNow();
+    expect(await hasDemoData(b)).toBe(true);
+    const real = await createComplaint(b, settingsB, newComplaint());
+    await syncB.syncNow();
+
+    // What purge_demo_data() does on the server.
+    for (const t of server.tables.values()) for (const id of [...t.keys()]) if (id.startsWith('demo-')) t.delete(id);
+    const app = server.table('settings').get('app');
+    server.table('settings').set('app', {
+      data: { ...(app?.data ?? {}), value: { ...((app?.data.value as object) ?? {}), demoPurgedAt: '2026-09-28T12:00:00Z' } },
+      updated_at: server.now(),
+    });
+    await purgeLocalDemo(a);
+
+    await syncB.syncNow();
+    expect(await hasDemoData(b)).toBe(false);
+    expect((await b.complaints.toArray()).map((c) => c.id)).toEqual([real]);
+    expect((await b.items.get(R32))!.stock).toBe(0);
   });
 });

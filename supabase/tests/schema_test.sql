@@ -154,7 +154,34 @@ do $$ begin
   assert not (select must_change_password from public.profiles where email = 'exec1@somotex.com'), 'password change recorded';
 end $$;
 
--- 10. Anonymous visitors see nothing but the staff count.
+-- 10. Several movements in one upload are checked in order.
+set role authenticated;
+select pg_temp.act_as(:'exec1');
+insert into public.movements (id, data) values
+  ('mb1', '{"itemId": "r32", "kind": "Receipt", "qty": 3}'),
+  ('mb2', '{"itemId": "r32", "kind": "Issue", "qty": -3.5}');
+select pg_temp.expect_error($$insert into public.movements (id, data) values
+  ('mb3', '{"itemId": "r32", "kind": "Issue", "qty": -1}'), ('mb4', '{"itemId": "r32", "kind": "Receipt", "qty": 5}')$$, '%Not enough stock%');
+
+-- 11. Demo data: only the head removes it; real rows stay; devices are told.
+insert into public.customers (id, data) values ('demo-c1', '{"name": "Demo"}'), ('real-c1', '{"name": "Real"}');
+select pg_temp.expect_error($$select public.purge_demo_data()$$, '%Only the Service Head%');
+select pg_temp.act_as(:'head_id');
+insert into public.complaints (id, data) values ('demo-x1', '{"ticketNo": "TMP-D1", "status": "Registered", "createdAt": "2026-09-28T12:00:00Z"}');
+insert into public.movements (id, data) values ('demo-m1', '{"itemId": "r32", "kind": "Receipt", "qty": 1}');
+select public.purge_demo_data();
+reset role;
+do $$ begin
+  assert not exists (select 1 from public.customers where id = 'demo-c1'), 'demo customer removed';
+  assert exists (select 1 from public.customers where id = 'real-c1'), 'real customer kept';
+  assert not exists (select 1 from public.complaints where id like 'demo-%'), 'demo complaint removed';
+  assert not exists (select 1 from public.movements where id like 'demo-%'), 'demo movement removed';
+  assert (select data -> 'value' ->> 'demoPurgedAt' from public.settings where id = 'app') is not null, 'devices told';
+  assert (select data -> 'value' ->> 'ticketPrefix' from public.settings where id = 'app') = 'SMX', 'other settings kept';
+  assert exists (select 1 from public.ticket_counters), 'counter kept while real complaints exist';
+end $$;
+
+-- 12. Anonymous visitors see nothing but the staff count.
 set role anon;
 select pg_temp.act_as(null);
 do $$ begin

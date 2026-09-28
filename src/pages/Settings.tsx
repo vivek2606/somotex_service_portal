@@ -6,7 +6,10 @@ import { useSettings } from '../components/SettingsContext';
 import { Empty, fmtDateTime, useAction, useToast } from '../components/ui';
 import { ROLE_LABEL } from '../db/auth';
 import { db, runtime, SYNCED_TABLES, type SyncedTable } from '../db/db';
-import { loadDemoData, seedIfEmpty } from '../db/seed';
+import { hasDemoData, loadDemoData, purgeLocalDemo } from '../db/demo';
+import { seedIfEmpty } from '../db/seed';
+import { supabase } from '../cloud/supabase';
+import { useLiveQuery } from 'dexie-react-hooks';
 import { exportAll, importAll } from '../db/service';
 import { saveSettings, type AppSettings } from '../db/settings';
 import { REFRIGERANTS, type JobType, type Priority } from '../db/types';
@@ -307,13 +310,7 @@ export default function Settings() {
               </label>}
             </div>
           </div>
-          {!runtime.cloud && <div className="card">
-            <h2>Demo data</h2>
-            <p className="small muted">Adds two technicians, some stock and three sample complaints so you can try the workflow.</p>
-            <button disabled={busy} onClick={() => run(() => loadDemoData(db, current), 'Demo data loaded')}>
-              Load demo data
-            </button>
-          </div>}
+          <DemoDataCard />
           {!runtime.cloud && <div className="card">
             <h2>Reset</h2>
             <p className="small muted">Deletes everything on this device. Download a backup first.</p>
@@ -462,6 +459,56 @@ function SyncTab() {
           Re-download data
         </button>
       </div>
+    </div>
+  );
+}
+
+function DemoDataCard() {
+  const settings = useSettings();
+  const { sync } = useAuth();
+  const { run, busy } = useAction();
+  const loaded = useLiveQuery(() => hasDemoData(db), []);
+
+  const load = () => {
+    const where = runtime.cloud ? 'the shared database. Everyone signed in on any computer will see it' : 'this computer';
+    if (!confirm(`This adds about two months of sample customers, complaints, stock and gas use to ${where}. Remove it again before real use. Continue?`)) return;
+    run(async () => {
+      await loadDemoData(db, settings);
+      await sync?.syncNow();
+    }, 'Demo data loaded');
+  };
+
+  const remove = () => {
+    if (!confirm('Remove all demo records? Real records you have entered are not affected.')) return;
+    run(async () => {
+      if (runtime.cloud) {
+        await sync?.syncNow();
+        const { error } = await supabase!.rpc('purge_demo_data');
+        if (error) throw new Error(error.message);
+      }
+      await purgeLocalDemo(db);
+      await sync?.syncNow();
+    }, 'Demo data removed');
+  };
+
+  return (
+    <div className="card">
+      <h2>Demo data</h2>
+      <p className="small muted">
+        About two months of realistic sample activity: customers across all brands and products, complaints at every stage (some
+        overdue), technicians, stock receipts, gas issued against budgets, over-budget and repeat-leak alerts, customer calls and
+        ratings. Use it to try the workflow and see the reports; every demo record is marked so it can be removed in one step.
+        Items without a unit cost are given example prices. Check them under Inventory before going live.
+      </p>
+      {busy ? (
+        <button disabled>Working… please keep this page open</button>
+      ) : loaded ? (
+        <button className="danger" onClick={remove}>
+          Remove demo data
+        </button>
+      ) : (
+        <button onClick={load}>Load demo data</button>
+      )}
     </div>
   );
 }
