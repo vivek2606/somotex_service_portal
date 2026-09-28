@@ -1,4 +1,5 @@
 import { DEFAULT_NORMS, type ConsumptionNorms } from '../lib/consumption';
+import { DEFAULT_WARRANTY_RULES, type WarrantyRule } from '../lib/warranty';
 import type { Priority, ProductCategory } from './types';
 import type { ServiceDB } from './db';
 
@@ -25,6 +26,8 @@ export interface AppSettings {
   /** SLA target resolution time in hours, by priority. */
   slaHours: Record<Priority, number>;
   norms: ConsumptionNorms;
+  /** Warranty periods by brand and product, from the invoice date. */
+  warrantyRules: WarrantyRule[];
   /** Set by the server when demo data is removed, so every device drops its copy. */
   demoPurgedAt?: string;
 }
@@ -79,6 +82,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   ],
   slaHours: { Critical: 24, High: 48, Normal: 72, Low: 120 },
   norms: DEFAULT_NORMS,
+  warrantyRules: DEFAULT_WARRANTY_RULES,
 };
 
 const KEY = 'app';
@@ -96,6 +100,10 @@ export function mergeSettings(saved: Partial<AppSettings>): AppSettings {
     ...DEFAULT_SETTINGS,
     ...saved,
     slaHours: { ...DEFAULT_SETTINGS.slaHours, ...saved.slaHours },
+    // There is always a general rule to fall back on.
+    warrantyRules: saved.warrantyRules?.some((r) => r.brand === 'Any' && r.category === 'Any')
+      ? saved.warrantyRules
+      : [...DEFAULT_WARRANTY_RULES, ...(saved.warrantyRules ?? [])],
     norms: {
       ...DEFAULT_NORMS,
       ...norms,

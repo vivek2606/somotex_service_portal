@@ -20,6 +20,7 @@ export default function Complaints() {
   const [category, setCategory] = useState('');
   const [tech, setTech] = useState('');
   const [branch, setBranch] = useState('');
+  const [warranty, setWarranty] = useState('');
   const [limit, setLimit] = useState(PAGE);
   const query = useDeferredValue(q.trim().toLowerCase());
 
@@ -44,13 +45,14 @@ export default function Complaints() {
       if (category && c.equipment.category !== category) return false;
       if (tech && (c.technicianId ?? '') !== tech) return false;
       if (branch && c.branch !== branch) return false;
+      if (warranty && c.equipment.warranty !== warranty) return false;
       if (!query) return true;
       const cust = customers.get(c.customerId);
       return [c.ticketNo, cust?.name, cust?.phone, c.equipment.serialNo, c.equipment.model, c.complaintType, c.callerName]
         .filter(Boolean)
         .some((v) => v!.toLowerCase().includes(query));
     });
-  }, [complaints, customers, status, brand, category, tech, branch, query]);
+  }, [complaints, customers, status, brand, category, tech, branch, warranty, query]);
 
   const techName = (id?: string) => technicians?.find((t) => t.id === id)?.name ?? '—';
   const now = new Date().toISOString();
@@ -79,6 +81,13 @@ export default function Complaints() {
           {settings.branches.map((b) => (
             <option key={b}>{b}</option>
           ))}
+        </select>
+        <select value={warranty} onChange={(e) => setWarranty(e.target.value)}>
+          <option value="">Any warranty</option>
+          <option>In Warranty</option>
+          <option>Out of Warranty</option>
+          <option>AMC</option>
+          <option>Unknown</option>
         </select>
         <select value={brand} onChange={(e) => setBrand(e.target.value)}>
           <option value="">All brands</option>

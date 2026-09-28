@@ -94,6 +94,20 @@ As you answer:
 - Issue gas and spares against the job's budget. Going over the budget requires a reason.
 - Record the job details, the confirmed cause and the resolution, then close the complaint.
 
+### Warranty
+
+The Service Head sets **warranty periods** under **Settings → General**. The most specific rule applies:
+1. brand and product
+2. brand only
+3. product only
+4. the general rule
+
+A rule can also carry a longer **compressor** period.
+
+When the executive enters the **invoice date**, the complaint shows "In warranty until …" or "expired …", with compressor cover shown separately. If the customer finds the invoice later, add it on the complaint page and the status updates. AMC contracts can be set by hand. The job form hints whether to charge.
+
+Reports show warranty jobs and their material cost by brand. For principal brands this is what can be claimed back; for in-house brands it is the warranty cost to the company.
+
 ### Other pages
 
 - **Alerts:** gas used above budget, the wrong refrigerant, gas used with no matching activity, and units charged repeatedly. The Service Head reviews each alert.

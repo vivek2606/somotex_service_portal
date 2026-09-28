@@ -33,6 +33,8 @@ import {
 import { BRAZING_METHODS, CALL_OUTCOMES, GAS_TYPES, type BrazingMethod, type CallOutcome, type Complaint, type ComplaintStatus, type JobType } from '../db/types';
 import { expectedRefrigerant, issuePlan, JOB_TYPES, usesRefrigerant } from '../lib/consumption';
 import { causesFor, diagnose, questionnaire } from '../lib/diagnosis';
+import { applyWarranty, warrantyFor } from '../lib/warranty';
+import { WarrantyNote } from '../components/Warranty';
 
 const NEXT: Record<ComplaintStatus, ComplaintStatus[]> = {
   Registered: ['Assigned', 'In Progress', 'Cancelled'],
@@ -188,8 +190,7 @@ function Detail({ c }: { c: Complaint }) {
                   )}
                   <dt>Warranty</dt>
                   <dd>
-                    {c.equipment.warranty}
-                    {c.equipment.purchaseDate && <> · bought {fmtDate(c.equipment.purchaseDate)}</>}
+                    <InvoiceWarranty c={c} />
                   </dd>
                 </dl>
               </div>
@@ -345,6 +346,16 @@ function JobCard({ c }: { c: Complaint }) {
   useEffect(() => setF(pickJob(c)), [c]);
   const causes = causesFor(c.equipment.category);
   const hasGas = usesRefrigerant(c.equipment.category);
+  // Warranty on the day the complaint was logged decides who pays.
+  const w = warrantyFor(c.equipment, settings.warrantyRules, new Date(c.createdAt));
+  const chargeHint =
+    c.equipment.warranty === 'AMC'
+      ? 'AMC contract: charge as per the contract.'
+      : f.jobType === 'Compressor Replacement' && w.compressorCovered
+        ? 'Compressor is under its extended warranty.'
+        : c.equipment.warranty === 'In Warranty'
+          ? 'In warranty: normally no charge for parts and labour.'
+          : undefined;
   const num = (v: string) => (v === '' ? undefined : Number(v));
   const exp = hasGas ? expectedRefrigerant(c.equipment, f.jobType, f.pipeLengthM, settings.norms) : undefined;
 
@@ -427,6 +438,7 @@ function JobCard({ c }: { c: Complaint }) {
         <label className="field">
           Service charge ({settings.currency})
           <input type="number" inputMode="numeric" min="0" value={f.serviceCharge ?? ''} onChange={(e) => setF({ ...f, serviceCharge: num(e.target.value) })} />
+          {chargeHint && <span className="hint">{chargeHint}</span>}
         </label>
         <label className="field">
           Customer feedback
@@ -760,4 +772,57 @@ function toInternational(phone: string, countryCode: string) {
   if (digits.startsWith('0')) return countryCode + digits.slice(1);
   if (digits.startsWith(countryCode)) return digits;
   return countryCode + digits;
+}
+
+/** Warranty status with the invoice details, which can be added or corrected later. */
+function InvoiceWarranty({ c }: { c: Complaint }) {
+  const settings = useSettings();
+  const { run, busy } = useAction();
+  const [editing, setEditing] = useState(false);
+  const [date, setDate] = useState(c.equipment.purchaseDate ?? '');
+  const [invoiceNo, setInvoiceNo] = useState(c.equipment.invoiceNo ?? '');
+  const onDay = new Date(c.createdAt);
+  const w = warrantyFor(c.equipment, settings.warrantyRules, onDay);
+
+  const save = () =>
+    run(async () => {
+      const eq = { ...c.equipment, purchaseDate: date || undefined, invoiceNo: invoiceNo || undefined };
+      await updateJobDetails(db, settings, c.id, { equipment: applyWarranty(eq, settings.warrantyRules, onDay) });
+      setEditing(false);
+    }, 'Invoice details saved');
+
+  if (editing) {
+    return (
+      <div className="stack" style={{ marginTop: 4 }}>
+        <label className="field">
+          Invoice date
+          <input type="date" value={date} max={new Date().toISOString().slice(0, 10)} onChange={(e) => setDate(e.target.value)} />
+        </label>
+        <label className="field">
+          Invoice no.
+          <input value={invoiceNo} onChange={(e) => setInvoiceNo(e.target.value)} />
+        </label>
+        <div className="row">
+          <button className="sm primary" disabled={busy} onClick={save}>
+            Save
+          </button>
+          <button className="sm" onClick={() => setEditing(false)}>
+            Cancel
+          </button>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <>
+      {c.equipment.warranty === 'AMC' ? <span className="badge primary">AMC</span> : <WarrantyNote w={w} />}
+      <div className="small muted">
+        {c.equipment.purchaseDate ? `Invoice ${fmtDate(c.equipment.purchaseDate)}` : 'No invoice date'}
+        {c.equipment.invoiceNo && ` · No. ${c.equipment.invoiceNo}`}{' '}
+        <button className="link small" onClick={() => setEditing(true)}>
+          {c.equipment.purchaseDate ? 'Edit' : 'Add invoice'}
+        </button>
+      </div>
+    </>
+  );
 }

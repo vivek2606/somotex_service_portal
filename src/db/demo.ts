@@ -7,6 +7,7 @@
 
 import { diagnose, type Answers } from '../lib/diagnosis';
 import { issuePlan } from '../lib/consumption';
+import { applyWarranty } from '../lib/warranty';
 import { DEMO_PREFIX, newId, runtime, type ServiceDB } from './db';
 import { seedIfEmpty } from './seed';
 import {
@@ -465,8 +466,6 @@ export async function loadDemoData(db: ServiceDB, settings: AppSettings, days = 
           purchaseDate: new Date(start - whole(30, 900) * DAY).toISOString().slice(0, 10),
           warranty: 'Unknown',
         };
-        const months = (start + plan.day * DAY - new Date(eq.purchaseDate!).getTime()) / (30.44 * DAY);
-        eq.warranty = months <= 12 ? 'In Warranty' : 'Out of Warranty';
         cust.units.push(eq);
       }
       if (plan.key === 'acTopUp' && !reuse) {
@@ -475,6 +474,8 @@ export async function loadDemoData(db: ServiceDB, settings: AppSettings, days = 
       }
 
       const created = start + plan.day * DAY;
+      // Warranty as on the day of the call, from the invoice date and the rules in Settings.
+      eq = applyWarranty(eq, settings.warrantyRules, new Date(created));
       const statement = pick(sc.statements);
       const answers = sc.answers;
       const diagnosis = diagnose(eq.category, answers, `${sc.complaintType} ${statement}`, confirmed);

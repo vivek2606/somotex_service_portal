@@ -14,6 +14,7 @@ import { exportAll, importAll } from '../db/service';
 import { saveSettings, type AppSettings } from '../db/settings';
 import { REFRIGERANTS, type JobType, type Priority } from '../db/types';
 import { DEFAULT_NORMS } from '../lib/consumption';
+import { ANY, type WarrantyRule } from '../lib/warranty';
 import { downloadText } from '../lib/csv';
 
 export default function Settings() {
@@ -140,6 +141,78 @@ export default function Settings() {
             </div>
             <button style={{ marginTop: 10 }} onClick={() => setS({ ...s, brands: [...s.brands, { name: '', inHouse: false }] })}>
               Add brand
+            </button>
+          </div>
+
+          <div className="card">
+            <h2>Warranty periods</h2>
+            <p className="small muted">
+              Warranty is worked out from the invoice date. The most specific rule applies: brand and product, then brand, then
+              product, then the general rule. Add a compressor period where the brand gives a longer compressor warranty.
+            </p>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Brand</th>
+                    <th>Product</th>
+                    <th className="num">Months</th>
+                    <th className="num">Compressor months</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {s.warrantyRules.map((r, i) => {
+                    const setRule = (patch: Partial<WarrantyRule>) =>
+                      setS({ ...s, warrantyRules: s.warrantyRules.map((x, j) => (j === i ? { ...x, ...patch } : x)) });
+                    return (
+                      <tr key={i}>
+                        <td>
+                          <select value={r.brand} onChange={(e) => setRule({ brand: e.target.value })}>
+                            <option value={ANY}>Any brand</option>
+                            {s.brands.map((b) => (
+                              <option key={b.name}>{b.name}</option>
+                            ))}
+                          </select>
+                        </td>
+                        <td>
+                          <select value={r.category} onChange={(e) => setRule({ category: e.target.value as WarrantyRule['category'] })}>
+                            <option value={ANY}>Any product</option>
+                            {s.categories.map((c) => (
+                              <option key={c}>{c}</option>
+                            ))}
+                          </select>
+                        </td>
+                        <td>
+                          <input type="number" min="0" value={r.months} onChange={(e) => setRule({ months: num(e.target.value) })} />
+                        </td>
+                        <td>
+                          <input
+                            type="number"
+                            min="0"
+                            value={r.compressorMonths ?? ''}
+                            placeholder="—"
+                            onChange={(e) => setRule({ compressorMonths: e.target.value === '' ? undefined : num(e.target.value) })}
+                          />
+                        </td>
+                        <td className="right">
+                          {!(r.brand === ANY && r.category === ANY) && (
+                            <button className="sm" onClick={() => setS({ ...s, warrantyRules: s.warrantyRules.filter((_, j) => j !== i) })}>
+                              Remove
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <button
+              style={{ marginTop: 10 }}
+              onClick={() => setS({ ...s, warrantyRules: [...s.warrantyRules, { brand: s.brands[0]?.name ?? ANY, category: ANY, months: 12 }] })}
+            >
+              Add rule
             </button>
           </div>
 

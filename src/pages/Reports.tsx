@@ -84,6 +84,16 @@ export default function Reports() {
   const inHouse = new Set(settings.brands.filter((b) => b.inHouse).map((b) => b.name));
   const inHouseClosed = closed.filter((c) => inHouse.has(c.equipment.brand));
 
+  const underWarranty = (c: Complaint) => c.equipment.warranty === 'In Warranty' || c.equipment.warranty === 'AMC';
+  const warrantyByBrand = [...new Set(closed.map((c) => c.equipment.brand))]
+    .map((brand) => {
+      const all = closed.filter((c) => c.equipment.brand === brand);
+      const w = all.filter(underWarranty);
+      return { brand, jobs: w.length, total: all.length, cost: w.reduce((t, c) => t + (cost.get(c.id) ?? 0), 0) };
+    })
+    .filter((b) => b.jobs > 0)
+    .sort((a, b) => b.cost - a.cost);
+
   const techPerf = [...new Set(closed.map((c) => c.technicianId ?? ''))]
     .map((tid) => {
       const jobs = closed.filter((c) => (c.technicianId ?? '') === tid);
@@ -103,12 +113,12 @@ export default function Reports() {
     downloadText(
       `closures-${from}-to-${to}.csv`,
       toCsv([
-        ['Ticket', 'Branch', 'Logged', 'Logged by', 'Logged by email', 'Closed', 'Closed by', 'Closed by email', 'Customer', 'Phone', 'Brand', 'Category', 'Model', 'Serial', 'Warranty', 'Complaint', 'Customer said', 'Job type', 'Confirmed cause', 'Resolution', 'Technician', 'TAT hours', 'Within target', 'Rating', 'Material cost', 'Service charge'],
+        ['Ticket', 'Branch', 'Logged', 'Logged by', 'Logged by email', 'Closed', 'Closed by', 'Closed by email', 'Customer', 'Phone', 'Brand', 'Category', 'Model', 'Serial', 'Invoice date', 'Invoice no', 'Warranty', 'Warranty until', 'Complaint', 'Customer said', 'Job type', 'Confirmed cause', 'Resolution', 'Technician', 'TAT hours', 'Within target', 'Rating', 'Material cost', 'Service charge'],
         ...closed.map((c) => {
           const cu = customers.get(c.customerId);
           return [
             c.ticketNo, c.branch, c.createdAt, c.loggedBy, c.loggedByEmail, c.closedAt, c.closedBy, c.closedByEmail, cu?.name, cu?.phone, c.equipment.brand, c.equipment.category, c.equipment.model,
-            c.equipment.serialNo, c.equipment.warranty, c.complaintType, c.customerStatement, c.jobType, causeName(c), c.resolution,
+            c.equipment.serialNo, c.equipment.purchaseDate, c.equipment.invoiceNo, c.equipment.warranty, c.equipment.warrantyUntil, c.complaintType, c.customerStatement, c.jobType, causeName(c), c.resolution,
             technicians.get(c.technicianId ?? ''), (tat(c) / 3600000).toFixed(1), inSla(c) ? 'Yes' : 'No', c.customerFeedback,
             Math.round(cost.get(c.id) ?? 0), c.serviceCharge,
           ];
@@ -168,10 +178,47 @@ export default function Reports() {
         <Breakdown title="By technician" rows={countBy(closed, (c) => technicians.get(c.technicianId ?? '') ?? 'Unassigned')} />
         <Breakdown title="Confirmed causes" rows={countBy(closed, causeName)} />
         <Breakdown title="Job types" rows={countBy(closed, (c) => c.jobType ?? 'Not recorded')} />
+        <Breakdown title="Warranty status" rows={countBy(closed, (c) => c.equipment.warranty)} />
         <Breakdown
           title={`In-house brands (${[...inHouse].join(', ')}): failures by model`}
           rows={countBy(inHouseClosed, (c) => `${c.equipment.brand} ${c.equipment.model || c.equipment.category} · ${causeName(c)}`)}
         />
+      </div>
+
+      <div className="card" style={{ marginTop: 14, padding: 0 }}>
+        <h2 style={{ padding: '16px 16px 0' }}>Warranty jobs by brand</h2>
+        <p className="small muted" style={{ padding: '0 16px' }}>
+          Closed in-warranty and AMC jobs with the parts, gas and consumables used. For principal brands this is what can be
+          claimed back; for in-house brands it is the cost of warranty to the company.
+        </p>
+        {warrantyByBrand.length === 0 ? (
+          <Empty>No warranty jobs closed in this period.</Empty>
+        ) : (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Brand</th>
+                  <th className="num">Warranty jobs</th>
+                  <th className="num">Material cost</th>
+                  <th className="num">Of all jobs</th>
+                </tr>
+              </thead>
+              <tbody>
+                {warrantyByBrand.map((b) => (
+                  <tr key={b.brand}>
+                    <td>
+                      {b.brand} {inHouse.has(b.brand) && <span className="badge primary">In-house</span>}
+                    </td>
+                    <td className="num">{b.jobs}</td>
+                    <td className="num">{fmtMoney(b.cost, settings.currency)}</td>
+                    <td className="num">{Math.round((b.jobs / b.total) * 100)}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       <div className="card" style={{ marginTop: 14, padding: 0 }}>

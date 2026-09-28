@@ -81,6 +81,10 @@ export interface Equipment {
   invoiceNo?: string;
   dealer?: string;
   warranty: WarrantyStatus;
+  /** Last day of the general warranty, worked out from the invoice date. */
+  warrantyUntil?: string;
+  /** Last day of an extended compressor warranty, if any. */
+  compressorWarrantyUntil?: string;
 }
 
 export interface Complaint {

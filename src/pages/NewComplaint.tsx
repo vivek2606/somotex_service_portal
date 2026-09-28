@@ -19,6 +19,8 @@ import type {
 import { REFRIGERANTS } from '../db/types';
 import { usesRefrigerant } from '../lib/consumption';
 import { diagnose, type Answers } from '../lib/diagnosis';
+import { applyWarranty, warrantyFor } from '../lib/warranty';
+import { WarrantyNote } from '../components/Warranty';
 
 const CAP_UNITS: CapacityUnit[] = ['BTU/h', 'TR', 'kW', 'HP', 'L'];
 const PRIORITIES: Priority[] = ['Low', 'Normal', 'High', 'Critical'];
@@ -30,12 +32,6 @@ function defaultUnit(cat: ProductCategory): CapacityUnit {
   if (cat === 'Refrigerator' || cat === 'Chest Freezer') return 'L';
   if (cat === 'VRF / VRV' || cat === 'Chiller' || cat === 'Commercial AC') return 'kW';
   return 'BTU/h';
-}
-
-function warrantyFromDate(date: string): WarrantyStatus {
-  if (!date) return 'Unknown';
-  const months = (Date.now() - new Date(date).getTime()) / (30.44 * 86400000);
-  return months <= 12 ? 'In Warranty' : 'Out of Warranty';
 }
 
 export default function NewComplaint() {
@@ -59,6 +55,9 @@ export default function NewComplaint() {
     refrigerant: 'R32',
     warranty: 'Unknown',
   });
+  // Warranty follows the invoice date and the rules in Settings unless set by hand (e.g. AMC).
+  const [warrantyManual, setWarrantyManual] = useState(false);
+  const autoWarranty = useMemo(() => warrantyFor(eq, settings.warrantyRules), [eq, settings.warrantyRules]);
   const [complaintType, setComplaintType] = useState(settings.complaintTypes[0]);
   const [statement, setStatement] = useState('');
   const [description, setDescription] = useState('');
@@ -162,7 +161,7 @@ export default function NewComplaint() {
       const id = await createComplaint(db, settings, {
         customerId,
         customer: customerId ? undefined : { ...cust, name: cust.name.trim(), phone: cust.phone.trim() },
-        equipment: eq,
+        equipment: warrantyManual ? eq : applyWarranty(eq, settings.warrantyRules),
         complaintType,
         description: description.trim(),
         customerStatement: statement.trim() || undefined,
@@ -413,24 +412,36 @@ export default function NewComplaint() {
                 </>
               )}
               <label className="field">
-                Purchase date
+                Invoice date
                 <input
                   type="date"
+                  max={new Date().toISOString().slice(0, 10)}
                   value={eq.purchaseDate ?? ''}
-                  onChange={(e) =>
-                    setEq({ ...eq, purchaseDate: e.target.value, warranty: warrantyFromDate(e.target.value) })
-                  }
+                  onChange={(e) => setEq({ ...eq, purchaseDate: e.target.value || undefined })}
                 />
               </label>
               <label className="field">
                 Warranty
-                <select value={eq.warranty} onChange={(e) => setEq({ ...eq, warranty: e.target.value as WarrantyStatus })}>
-                  <option>In Warranty</option>
-                  <option>Out of Warranty</option>
-                  <option>AMC</option>
-                  <option>Unknown</option>
+                <select
+                  value={warrantyManual ? eq.warranty : 'auto'}
+                  onChange={(e) => {
+                    if (e.target.value === 'auto') {
+                      setWarrantyManual(false);
+                    } else {
+                      setWarrantyManual(true);
+                      setEq({ ...eq, warranty: e.target.value as WarrantyStatus });
+                    }
+                  }}
+                >
+                  <option value="auto">From invoice date: {autoWarranty.status}</option>
+                  <option value="AMC">AMC contract</option>
+                  <option value="In Warranty">In Warranty (set by hand)</option>
+                  <option value="Out of Warranty">Out of Warranty (set by hand)</option>
                 </select>
               </label>
+              <div className="span-all small" style={{ marginTop: -4 }}>
+                <WarrantyNote w={autoWarranty} />
+              </div>
               <label className="field">
                 Invoice no.
                 <input value={eq.invoiceNo ?? ''} onChange={(e) => setEq({ ...eq, invoiceNo: e.target.value })} />
