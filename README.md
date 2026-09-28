@@ -143,7 +143,7 @@ npm run build             # production build in dist/
 supabase/tests/run.sh     # database schema tests (needs a local PostgreSQL; see the script)
 ```
 
-The GitHub Actions workflow runs the app tests, the build and the database tests on every push. It publishes `main` to GitHub Pages when Pages is enabled.
+The GitHub Actions workflow runs the app tests, the build and the database tests on every push. Vercel publishes `main`.
 
 ## Project layout
 
