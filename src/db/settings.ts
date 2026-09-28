@@ -14,9 +14,11 @@ export interface AppSettings {
   currentUser: string;
   currentUserEmail?: string;
   currency: string;
-  /** Dialling code used for WhatsApp/SMS links, e.g. 265 for Malawi. */
+  /** Dialling code used for WhatsApp/SMS links, e.g. 234 for Nigeria. */
   countryCode: string;
   ticketPrefix: string;
+  /** Service locations; complaints and technicians belong to one. */
+  branches: string[];
   brands: Brand[];
   categories: ProductCategory[];
   complaintTypes: string[];
@@ -44,8 +46,9 @@ export const PRODUCT_CATEGORIES: ProductCategory[] = [
 export const DEFAULT_SETTINGS: AppSettings = {
   companyName: 'Somotex',
   currentUser: 'Service Desk',
-  currency: 'MWK',
-  countryCode: '265',
+  currency: 'NGN',
+  countryCode: '234',
+  branches: ['Lagos (Head Office)', 'Abuja', 'Ibadan', 'Onitsha', 'Port Harcourt', 'Kano'],
   ticketPrefix: 'SMX',
   brands: [
     { name: 'Midea', inHouse: false },

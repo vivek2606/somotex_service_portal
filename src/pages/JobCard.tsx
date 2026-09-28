@@ -70,7 +70,7 @@ export default function JobCard() {
           <div className="right">
             <div style={{ fontSize: '1.3rem', fontWeight: 700 }}>{c.ticketNo}</div>
             <div className="small">
-              Priority {c.priority} · due {fmtDateTime(c.dueAt)}
+              {c.branch && `${c.branch} · `}Priority {c.priority} · due {fmtDateTime(c.dueAt)}
             </div>
           </div>
         </div>

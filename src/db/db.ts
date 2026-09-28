@@ -75,6 +75,13 @@ export class ServiceDB extends Dexie {
 
 type RemoteTx = Transaction & { __remote?: boolean };
 
+let lastSeq = 0;
+/** Strictly increasing creation order on this device, even within one millisecond. */
+function nextSeq() {
+  lastSeq = Math.max(Date.now() * 1000, lastSeq + 1);
+  return lastSeq;
+}
+
 /** Flags every local insert/update on a synced table as pending upload. */
 function markLocalChanges(db: ServiceDB) {
   for (const name of SYNCED_TABLES) {
@@ -83,6 +90,7 @@ function markLocalChanges(db: ServiceDB) {
     table.hook('creating', (_key, obj, tx) => {
       if ((tx as RemoteTx).__remote) return;
       obj._dirty = 1;
+      obj._seq = nextSeq();
     });
     table.hook('updating', (mods, _key, _obj, tx) => {
       if ((tx as RemoteTx).__remote) return undefined;

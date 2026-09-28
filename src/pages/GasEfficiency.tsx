@@ -87,6 +87,7 @@ export default function GasEfficiency() {
   const byItem = aggregate(stats, (s) => String(s.itemId), (s) => s.itemName);
   const byJobType = aggregate(ref, (s) => s.jobType ?? 'Not recorded', (s) => s.jobType ?? 'Not recorded');
   const byBrand = aggregate(ref, (s) => s.brand, (s) => s.brand);
+  const byBranch = aggregate(ref, (s) => s.branch ?? 'Not set', (s) => s.branch ?? 'Not set');
 
   // Technician view in grams across all refrigerants, plus total excess cost across all gases.
   const trends = technicianTrends(
@@ -244,6 +245,7 @@ export default function GasEfficiency() {
           <div className="grid cols-2" style={{ marginTop: 14 }}>
             <AggTable title="Refrigerant by job type" rows={byJobType} tol={tol} currency={settings.currency} compact />
             <AggTable title="Refrigerant by brand" rows={byBrand} tol={tol} currency={settings.currency} compact />
+            <AggTable title="Refrigerant by branch" rows={byBranch} tol={tol} currency={settings.currency} compact />
           </div>
 
           <div className="card" style={{ marginTop: 14 }}>

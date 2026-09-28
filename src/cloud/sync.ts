@@ -178,10 +178,11 @@ export class SyncEngine {
   private async push() {
     for (const table of SYNCED_TABLES) {
       const rows = (await this.db.table(table).where('_dirty').equals(1).toArray()) as Record<string, unknown>[];
-      // Send in the order things happened: a receipt must reach the server
-      // before the issue that draws on it, or the issue is refused.
+      // Send in the order things were created here: a receipt must reach the
+      // server before the issue that draws on it, or the issue is refused.
+      const seq = (r: Record<string, unknown>) => (r._seq as number | undefined) ?? 0;
       const when = (r: Record<string, unknown>) => String(r.at ?? r.createdAt ?? '');
-      rows.sort((x, y) => when(x).localeCompare(when(y)));
+      rows.sort((x, y) => seq(x) - seq(y) || when(x).localeCompare(when(y)));
       for (let i = 0; i < rows.length; i += CHUNK) {
         await this.pushChunk(table, rows.slice(i, i + CHUNK));
       }

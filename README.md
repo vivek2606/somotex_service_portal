@@ -16,7 +16,7 @@ Brands include Midea (commercial AC / VRF), Sharp, Beko, AUX and Chigo, plus the
 | Role | Can do |
 | --- | --- |
 | **Service Head** | Everything. Also: manage user accounts, settings and gas norms, technicians, the item catalogue and costs, stock sheet imports, stock counts, reviewing gas alerts, re-opening or cancelling complaints. |
-| **Helpdesk Executive** | Register, update and close **any** complaint (including other executives'), assign technicians, log customer calls, issue and return stock, receive deliveries, print job cards, view reports. |
+| **Helpdesk Executive** | Register, update and close **any** complaint at any branch (including other executives'), assign technicians, log customer calls, issue and return stock, receive deliveries, print job cards, view reports. |
 
 Everyone signs in with their **own email and password**. The server records who logged and who closed each complaint, with their email address, from the signed-in account, so it can't be typed in by someone else. The same applies to every timeline entry and stock movement.
 
@@ -51,7 +51,7 @@ On Netlify it's the same: import the repository, then add both variables under *
    - adds **Technicians**
    - imports stock sheets under **Inventory → Import stock sheet**
    - sets unit costs
-   - reviews **Settings** (company name, dialling code, target times, gas norms)
+   - reviews **Settings** (company name, branches, currency, dialling code, target times, gas norms)
 4. On each computer, open the address in Chrome or Edge and choose **Install app**, so it opens like a normal program.
 
 **Trying it out first:** the Service Head can use **Settings → Data & backup → Load demo data**. It adds about two months of sample customers, complaints, stock and gas use, so the reports and alerts have something to show. **Remove demo data** takes it all out again, on every computer, and leaves anything real untouched. Remove it before real use; ticket numbers then restart from 1.

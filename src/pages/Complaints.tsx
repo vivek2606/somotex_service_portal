@@ -19,6 +19,7 @@ export default function Complaints() {
   const [brand, setBrand] = useState('');
   const [category, setCategory] = useState('');
   const [tech, setTech] = useState('');
+  const [branch, setBranch] = useState('');
   const [limit, setLimit] = useState(PAGE);
   const query = useDeferredValue(q.trim().toLowerCase());
 
@@ -42,13 +43,14 @@ export default function Complaints() {
       if (brand && c.equipment.brand !== brand) return false;
       if (category && c.equipment.category !== category) return false;
       if (tech && (c.technicianId ?? '') !== tech) return false;
+      if (branch && c.branch !== branch) return false;
       if (!query) return true;
       const cust = customers.get(c.customerId);
       return [c.ticketNo, cust?.name, cust?.phone, c.equipment.serialNo, c.equipment.model, c.complaintType, c.callerName]
         .filter(Boolean)
         .some((v) => v!.toLowerCase().includes(query));
     });
-  }, [complaints, customers, status, brand, category, tech, query]);
+  }, [complaints, customers, status, brand, category, tech, branch, query]);
 
   const techName = (id?: string) => technicians?.find((t) => t.id === id)?.name ?? '—';
   const now = new Date().toISOString();
@@ -70,6 +72,12 @@ export default function Complaints() {
           <option value="all">All</option>
           {STATUSES.map((s) => (
             <option key={s}>{s}</option>
+          ))}
+        </select>
+        <select value={branch} onChange={(e) => setBranch(e.target.value)}>
+          <option value="">All branches</option>
+          {settings.branches.map((b) => (
+            <option key={b}>{b}</option>
           ))}
         </select>
         <select value={brand} onChange={(e) => setBrand(e.target.value)}>
@@ -133,7 +141,10 @@ export default function Complaints() {
                       </td>
                       <td>
                         {c.equipment.brand} {c.equipment.category}
-                        <div className="small muted">{c.equipment.model}</div>
+                        <div className="small muted">
+                          {c.equipment.model}
+                          {c.branch && ` · ${c.branch}`}
+                        </div>
                       </td>
                       <td>{c.complaintType}</td>
                       <td>{techName(c.technicianId)}</td>

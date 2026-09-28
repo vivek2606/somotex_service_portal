@@ -205,6 +205,7 @@ export async function updateJobDetails(
       | 'customerFeedback'
       | 'serviceCharge'
       | 'equipment'
+      | 'branch'
     >
   >,
 ) {
@@ -522,6 +523,7 @@ export interface GasJobStat {
   technicianId?: string;
   jobType?: string;
   brand: string;
+  branch?: string;
   itemId: string;
   itemName: string;
   itemType: InventoryItem['type'];
@@ -571,6 +573,7 @@ export async function gasJobStats(db: ServiceDB, settings: AppSettings, sinceIso
       technicianId: c.technicianId,
       jobType: c.jobType,
       brand: c.equipment.brand,
+      branch: c.branch,
       itemId: iid,
       itemName: item.name,
       itemType: item.type,

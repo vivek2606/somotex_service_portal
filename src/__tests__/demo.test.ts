@@ -33,7 +33,9 @@ describe('demo data', () => {
     expect(alerts.some((a) => a.code === 'repeat-charge')).toBe(true);
     // Stock never goes negative.
     for (const item of await db.items.toArray()) expect(item.stock).toBeGreaterThanOrEqual(0);
-    expect(await db.technicians.count()).toBe(4);
+    expect(await db.technicians.count()).toBe(8);
+    expect(new Set(complaints.map((c) => c.branch)).size).toBe(6);
+    expect(complaints.filter((c) => c.technicianId).every((c) => c.branch)).toBe(true);
     expect(await hasDemoData(db)).toBe(true);
     await expect(loadDemoData(db, settings)).rejects.toThrow(/already loaded/);
   });

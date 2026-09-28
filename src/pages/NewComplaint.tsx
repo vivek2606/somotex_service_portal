@@ -65,6 +65,16 @@ export default function NewComplaint() {
   const [answers, setAnswers] = useState<Answers>({});
   const [priority, setPriority] = useState<Priority | ''>('');
   const [preferredVisit, setPreferredVisit] = useState('');
+  // Each computer remembers the branch it last logged for.
+  const [branch, setBranch] = useState(() => {
+    try {
+      const saved = localStorage.getItem('somotex.branch');
+      if (saved && settings.branches.includes(saved)) return saved;
+    } catch {
+      /* storage unavailable */
+    }
+    return settings.branches[0] ?? '';
+  });
   const [technicianId, setTechnicianId] = useState<string>('');
 
   const selectedCustomer = useLiveQuery(() => (customerId ? db.customers.get(customerId) : undefined), [customerId]);
@@ -160,6 +170,7 @@ export default function NewComplaint() {
         callerPhone: caller.callerPhone.trim() || undefined,
         preferredVisit: preferredVisit.trim() || undefined,
         source: caller.source,
+        branch: branch || undefined,
         priority: effectivePriority,
         technicianId: technicianId || undefined,
         diagnosis: {
@@ -276,6 +287,24 @@ export default function NewComplaint() {
           <fieldset>
             <legend>Call details</legend>
             <div className="form-grid">
+              <label className="field">
+                Branch
+                <select
+                  value={branch}
+                  onChange={(e) => {
+                    setBranch(e.target.value);
+                    try {
+                      localStorage.setItem('somotex.branch', e.target.value);
+                    } catch {
+                      /* storage unavailable */
+                    }
+                  }}
+                >
+                  {settings.branches.map((b) => (
+                    <option key={b}>{b}</option>
+                  ))}
+                </select>
+              </label>
               <label className="field">
                 Received via
                 <select value={caller.source} onChange={(e) => setCaller({ ...caller, source: e.target.value as Complaint['source'] })}>
@@ -493,11 +522,15 @@ export default function NewComplaint() {
                 Assign technician
                 <select value={technicianId} onChange={(e) => setTechnicianId(e.target.value)}>
                   <option value="">Not yet</option>
-                  {technicians?.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name}
-                    </option>
-                  ))}
+                  {technicians
+                    ?.slice()
+                    .sort((x, y) => Number(y.branch === branch) - Number(x.branch === branch) || x.name.localeCompare(y.name))
+                    .map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                        {t.branch && t.branch !== branch ? ` (${t.branch})` : ''}
+                      </option>
+                    ))}
                 </select>
               </label>
               <label className="field span-all">

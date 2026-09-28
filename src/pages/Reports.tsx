@@ -44,12 +44,14 @@ export default function Reports() {
   const settings = useSettings();
   const [from, setFrom] = useState(isoDay(new Date(Date.now() - 30 * 86400000)));
   const [to, setTo] = useState(isoDay(new Date()));
+  const [branch, setBranch] = useState('');
 
   const data = useLiveQuery(async () => {
     const start = new Date(from).toISOString();
     const end = new Date(new Date(to).getTime() + 86400000).toISOString();
-    const closed = await db.complaints.where('closedAt').between(start, end).toArray();
-    const registered = await db.complaints.where('createdAt').between(start, end).count();
+    const inBranch = (c: Complaint) => !branch || c.branch === branch;
+    const closed = (await db.complaints.where('closedAt').between(start, end).toArray()).filter(inBranch);
+    const registered = (await db.complaints.where('createdAt').between(start, end).toArray()).filter(inBranch).length;
     const customers = new Map((await db.customers.bulkGet([...new Set(closed.map((c) => c.customerId))])).filter(Boolean).map((c) => [c!.id, c!]));
     const technicians = new Map((await db.technicians.toArray()).map((t) => [t.id, t.name]));
     const items = new Map((await db.items.toArray()).map((i) => [i.id, i]));
@@ -68,7 +70,7 @@ export default function Reports() {
       if (later.some((o) => o.id !== c.id && o.createdAt > c.closedAt! && o.createdAt <= limit)) repeats.add(c.id);
     }
     return { closed: closed.sort((a, b) => b.closedAt!.localeCompare(a.closedAt!)), registered, customers, technicians, cost, repeats };
-  }, [from, to]);
+  }, [from, to, branch]);
 
   if (!data) return <Loading />;
   const { closed, customers, technicians, cost } = data;
@@ -101,11 +103,11 @@ export default function Reports() {
     downloadText(
       `closures-${from}-to-${to}.csv`,
       toCsv([
-        ['Ticket', 'Logged', 'Logged by', 'Logged by email', 'Closed', 'Closed by', 'Closed by email', 'Customer', 'Phone', 'Brand', 'Category', 'Model', 'Serial', 'Warranty', 'Complaint', 'Customer said', 'Job type', 'Confirmed cause', 'Resolution', 'Technician', 'TAT hours', 'Within target', 'Rating', 'Material cost', 'Service charge'],
+        ['Ticket', 'Branch', 'Logged', 'Logged by', 'Logged by email', 'Closed', 'Closed by', 'Closed by email', 'Customer', 'Phone', 'Brand', 'Category', 'Model', 'Serial', 'Warranty', 'Complaint', 'Customer said', 'Job type', 'Confirmed cause', 'Resolution', 'Technician', 'TAT hours', 'Within target', 'Rating', 'Material cost', 'Service charge'],
         ...closed.map((c) => {
           const cu = customers.get(c.customerId);
           return [
-            c.ticketNo, c.createdAt, c.loggedBy, c.loggedByEmail, c.closedAt, c.closedBy, c.closedByEmail, cu?.name, cu?.phone, c.equipment.brand, c.equipment.category, c.equipment.model,
+            c.ticketNo, c.branch, c.createdAt, c.loggedBy, c.loggedByEmail, c.closedAt, c.closedBy, c.closedByEmail, cu?.name, cu?.phone, c.equipment.brand, c.equipment.category, c.equipment.model,
             c.equipment.serialNo, c.equipment.warranty, c.complaintType, c.customerStatement, c.jobType, causeName(c), c.resolution,
             technicians.get(c.technicianId ?? ''), (tat(c) / 3600000).toFixed(1), inSla(c) ? 'Yes' : 'No', c.customerFeedback,
             Math.round(cost.get(c.id) ?? 0), c.serviceCharge,
@@ -125,6 +127,12 @@ export default function Reports() {
         <label className="field inline">
           To <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
         </label>
+        <select value={branch} onChange={(e) => setBranch(e.target.value)} style={{ width: 'auto' }}>
+          <option value="">All branches</option>
+          {settings.branches.map((b) => (
+            <option key={b}>{b}</option>
+          ))}
+        </select>
         <button onClick={exportCsv} disabled={!closed.length}>
           Export CSV
         </button>
@@ -154,6 +162,7 @@ export default function Reports() {
       </div>
 
       <div className="grid cols-3">
+        {!branch && <Breakdown title="Closures by branch" rows={countBy(closed, (c) => c.branch ?? 'Not set')} />}
         <Breakdown title="Closures by brand" rows={countBy(closed, (c) => c.equipment.brand)} />
         <Breakdown title="By product" rows={countBy(closed, (c) => c.equipment.category)} />
         <Breakdown title="By technician" rows={countBy(closed, (c) => technicians.get(c.technicianId ?? '') ?? 'Unassigned')} />

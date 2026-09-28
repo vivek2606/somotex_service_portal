@@ -182,7 +182,7 @@ const SCENARIOS: Record<string, Scenario> = {
     purge: true,
     pressureTest: true,
     gasShare: [0.8, 1.1],
-    charge: [45000, 65000],
+    charge: [25000, 45000],
   },
   vrfCompressor: {
     units: ['mideaVrf'],
@@ -201,7 +201,7 @@ const SCENARIOS: Record<string, Scenario> = {
     recoveredG: 6500,
     gasShare: [0.95, 1.05],
     spares: ['SP-FILTER-DRIER'],
-    charge: [350000, 450000],
+    charge: [450000, 700000],
   },
   fridgeLeak: {
     units: ['bekoFridge', 'bruhmFridge', 'tamashiFreezer', 'bruhmFreezer', 'tamashiDisplay', 'sharpFridge'],
@@ -315,31 +315,44 @@ const MIX: [string, number][] = [
 ];
 
 const PEOPLE = [
-  'Grace Mwale', 'Chisomo Banda', 'Tiyamike Phiri', 'Kondwani Chirwa', 'Thokozani Nkhoma', 'Mphatso Gondwe',
-  'Madalitso Kumwenda', 'Chikondi Mbewe', 'Yamikani Tembo', 'Limbani Zulu', 'Tawonga Msiska', 'Alinafe Kachale',
-  'Pemphero Chimwaza', 'Dalitso Nyirenda', 'Fatsani Mhango',
+  'Chinedu Okafor', 'Aisha Bello', 'Tunde Adeyemi', 'Ngozi Eze', 'Ibrahim Musa', 'Funmilayo Ogunleye',
+  'Emeka Nwosu', 'Halima Abubakar', 'Segun Balogun', 'Amaka Obi', 'Yusuf Garba', 'Bisi Adebayo',
+  'Chioma Nnamdi', 'Kelechi Uche', 'Zainab Lawal', 'Oluwaseun Afolabi', 'Nkechi Onyeka', 'Musa Danjuma',
 ];
 const BUSINESSES = [
-  'Lilongwe Grand Hotel', 'Capital City Offices', 'Blantyre Medical Centre', 'Mzuzu Coffee House', 'Lakeshore Lodge',
-  'City Supermarket', 'Sunbird Guest House', 'Riverside Pharmacy',
+  'Lekki Grand Hotel', 'Marina Business Suites', 'Wuse Medical Centre', 'Ikeja Food Court', 'Garki Guest House',
+  'Bodija Pharmacy', 'Trans-Amadi Cold Store', 'Sabon Gari Supermarket', 'Victoria Island Offices', 'Ring Road Clinic',
 ];
-const DEALERS = ['Kamuzu Traders', 'Chipiku Electronics'];
-const CITIES = ['Lilongwe', 'Blantyre', 'Mzuzu', 'Zomba', 'Mangochi', 'Salima', 'Kasungu'];
-const AREAS = ['Area 47', 'Area 10', 'Chilomoni', 'Namiwawa', 'Katoto', 'Nkolokosa', 'Area 3', 'Chinsapo'];
+const DEALERS = ['Alaba Electronics Traders', 'Main Market Appliances'];
 
+/** Areas and phone prefixes per branch city (used for realistic addresses). */
+const PLACES: Record<string, { city: string; areas: string[] }> = {
+  'Lagos (Head Office)': { city: 'Lagos', areas: ['Lekki Phase 1', 'Ikeja GRA', 'Surulere', 'Victoria Island', 'Yaba', 'Ajah', 'Magodo'] },
+  Abuja: { city: 'Abuja', areas: ['Wuse II', 'Garki', 'Maitama', 'Gwarinpa', 'Asokoro'] },
+  Ibadan: { city: 'Ibadan', areas: ['Bodija', 'Ring Road', 'Challenge', 'Oluyole Estate'] },
+  Onitsha: { city: 'Onitsha', areas: ['GRA', 'Fegge', 'Awada', 'Main Market'] },
+  'Port Harcourt': { city: 'Port Harcourt', areas: ['Trans-Amadi', 'GRA Phase 2', 'Rumuola', 'D-Line'] },
+  Kano: { city: 'Kano', areas: ['Nassarawa GRA', 'Sabon Gari', 'Bompai', 'Tarauni'] },
+};
+
+/** Technicians per branch; Lagos has an AC team (one of whom over-uses gas) and an appliance technician. */
 const TECHNICIANS = [
-  { name: 'Chikondi Banda', phone: '0888 410 001', skills: 'Split AC, VRF, commercial refrigeration', gas: 1.0 },
-  { name: 'Blessings Kaunda', phone: '0999 410 002', skills: 'Split AC, installations', gas: 1.35 },
-  { name: 'Mphatso Phiri', phone: '0888 410 003', skills: 'Fridges, freezers, washing machines', gas: 1.02 },
-  { name: 'Joseph Mwale', phone: '0999 410 004', skills: 'TVs, microwaves, gas cookers', gas: 1.0 },
+  { name: 'Emeka Nwankwo', phone: '0803 410 0001', skills: 'Split AC, VRF, commercial refrigeration', branch: 'Lagos (Head Office)', ac: true, gas: 1.0 },
+  { name: 'Tunde Bakare', phone: '0806 410 0002', skills: 'Split AC, installations', branch: 'Lagos (Head Office)', ac: true, gas: 1.35 },
+  { name: 'Bisi Adeyemi', phone: '0813 410 0003', skills: 'Fridges, freezers, washing machines, TVs', branch: 'Lagos (Head Office)', ac: false, gas: 1.02 },
+  { name: 'Ibrahim Sule', phone: '0703 410 0004', skills: 'AC and refrigeration', branch: 'Abuja', ac: true, gas: 1.05 },
+  { name: 'Kunle Ajayi', phone: '0816 410 0005', skills: 'AC, fridges, appliances', branch: 'Ibadan', ac: true, gas: 1.0 },
+  { name: 'Obinna Eze', phone: '0905 410 0006', skills: 'AC, fridges, appliances', branch: 'Onitsha', ac: true, gas: 1.08 },
+  { name: 'Chidi Okeke', phone: '0809 410 0007', skills: 'AC, cold rooms, appliances', branch: 'Port Harcourt', ac: true, gas: 1.0 },
+  { name: 'Sani Garba', phone: '0802 410 0008', skills: 'AC, fridges, appliances', branch: 'Kano', ac: true, gas: 1.02 },
 ];
 
-/** Example prices (MWK) used only where an item has no unit cost yet. */
+/** Example prices (NGN) used only where an item has no unit cost yet. */
 const EXAMPLE_COSTS: Record<string, number> = {
-  'REF-R32': 25000, 'REF-R410A': 30000, 'REF-R22': 35000, 'REF-R134A': 30000, 'REF-R600A': 40000, 'REF-R290': 40000,
-  'GAS-O2': 15000, 'GAS-C2H2': 30000, 'GAS-LPG': 4000, 'GAS-MAPP': 60000, 'GAS-N2': 12000, 'FLUSH-AGENT': 20000,
-  'CON-ROD-15': 3500, 'CON-ROD-CU': 1500, 'SP-CAP-35': 12000, 'SP-CAP-FAN': 6000, 'SP-FILTER-DRIER': 8000,
-  'SP-THERMO-FR': 25000, 'SP-WM-DRAIN': 45000, 'SP-MW-MAG': 70000, 'SP-GC-IGN': 30000,
+  'REF-R32': 16000, 'REF-R410A': 20000, 'REF-R22': 18000, 'REF-R134A': 18000, 'REF-R600A': 25000, 'REF-R290': 25000,
+  'GAS-O2': 5000, 'GAS-C2H2': 12000, 'GAS-LPG': 1300, 'GAS-MAPP': 40000, 'GAS-N2': 6000, 'FLUSH-AGENT': 15000,
+  'CON-ROD-15': 2500, 'CON-ROD-CU': 800, 'SP-CAP-35': 6000, 'SP-CAP-FAN': 3500, 'SP-FILTER-DRIER': 4000,
+  'SP-THERMO-FR': 15000, 'SP-WM-DRAIN': 35000, 'SP-MW-MAG': 45000, 'SP-GC-IGN': 20000,
 };
 
 /** Opening stock (received 60 days ago) and a top-up 30 days ago. */
@@ -377,11 +390,15 @@ export async function loadDemoData(db: ServiceDB, settings: AppSettings, days = 
     const gasFor = (pred: (i: InventoryItem) => boolean) => items.find((i) => i.active && pred(i));
 
     // Technicians
-    const techIds: string[] = [];
+    // Use the branch names configured in Settings; demo places follow the defaults.
+    const branches = settings.branches.length ? settings.branches : Object.keys(PLACES);
+    const branchOf = (name: string) => (branches.includes(name) ? name : branches[0]);
+    const techs: { id: string; branch: string; ac: boolean; gas: number }[] = [];
     for (const t of TECHNICIANS) {
       const id = newId();
-      await db.technicians.add({ id, name: t.name, phone: t.phone, skills: t.skills, active: true });
-      techIds.push(id);
+      const branch = branchOf(t.branch);
+      await db.technicians.add({ id, name: t.name, phone: t.phone, skills: t.skills, active: true, branch });
+      techs.push({ id, branch, ac: t.ac, gas: t.gas });
     }
 
     // Stock
@@ -396,11 +413,20 @@ export async function loadDemoData(db: ServiceDB, settings: AppSettings, days = 
     }
 
     // Customers are created with their first complaint and reused for repeat business.
-    const customers: { id?: string; data: Omit<Customer, 'id' | 'createdAt'>; units: Equipment[] }[] = [];
-    const phone = () => `0${pick(['888', '999', '881', '995'])} ${whole(100, 999)} ${whole(100, 999)}`;
-    for (const name of PEOPLE) customers.push({ data: { name, phone: phone(), address: `${pick(AREAS)}`, city: pick(CITIES), type: 'Individual' }, units: [] });
-    for (const name of BUSINESSES) customers.push({ data: { name, phone: phone(), address: 'Main road', city: pick(CITIES), type: 'Business' }, units: [] });
-    for (const name of DEALERS) customers.push({ data: { name, phone: phone(), address: 'Commercial area', city: pick(CITIES), type: 'Dealer' }, units: [] });
+    const customers: { id?: string; branch: string; data: Omit<Customer, 'id' | 'createdAt'>; units: Equipment[] }[] = [];
+    const phone = () => `${pick(['0803', '0806', '0813', '0816', '0703', '0706', '0905', '0802'])} ${whole(100, 999)} ${whole(1000, 9999)}`;
+    // Lagos, as head office, handles the most calls.
+    const branchWeights = branches.flatMap((b, i) => Array<string>(i === 0 ? 4 : 1).fill(b));
+    const place = (branch: string) => PLACES[branch] ?? { city: branch.replace(/\s*\(.*\)/, ''), areas: ['Central'] };
+    const add = (name: string, type: Customer['type'], street: string) => {
+      // Every branch gets a few customers; after that, Lagos gets the most.
+      const branch = customers.length < branches.length * 2 ? branches[customers.length % branches.length] : pick(branchWeights);
+      const p = place(branch);
+      customers.push({ branch, data: { name, phone: phone(), address: `${whole(2, 48)} ${street}, ${pick(p.areas)}`, city: p.city, type }, units: [] });
+    };
+    for (const name of PEOPLE) add(name, 'Individual', pick(['Adeola Street', 'Okonkwo Close', 'Bello Crescent', 'Unity Road', 'Ahmadu Bello Way']));
+    for (const name of BUSINESSES) add(name, 'Business', pick(['Admiralty Way', 'Aminu Kano Crescent', 'Airport Road', 'Adeniran Ogunsanya Street']));
+    for (const name of DEALERS) add(name, 'Dealer', pick(['Market Road', 'New Market Road']));
 
     const weighted: string[] = MIX.flatMap(([k, w]) => Array<string>(w).fill(k));
     const count = 48;
@@ -423,7 +449,9 @@ export async function loadDemoData(db: ServiceDB, settings: AppSettings, days = 
 
     for (const [n, plan] of plans.entries()) {
       const sc = SCENARIOS[plan.key];
-      let cust = pick(customers);
+      // Head office gets the most calls.
+      const callBranch = pick(branchWeights);
+      let cust = pick(customers.filter((c) => c.branch === callBranch).length ? customers.filter((c) => c.branch === callBranch) : customers);
       let eq: Equipment;
       const reuse = plan.key === 'acTopUp' && repeatUnit.unit && r() < 0.7;
       if (reuse) {
@@ -454,6 +482,7 @@ export async function loadDemoData(db: ServiceDB, settings: AppSettings, days = 
 
       at(created);
       const id = await createComplaint(db, settings, {
+        branch: cust.branch,
         customerId: cust.id,
         customer: cust.id ? undefined : cust.data,
         equipment: eq,
@@ -476,10 +505,13 @@ export async function loadDemoData(db: ServiceDB, settings: AppSettings, days = 
 
       const isAc = ['Residential AC', 'Commercial AC', 'VRF / VRV'].includes(eq.category);
       const isGasJob = !!sc.gasShare;
-      const techIndex = isAc ? (r() < 0.45 ? 1 : 0) : ['Refrigerator', 'Chest Freezer', 'Washing Machine'].includes(eq.category) ? 2 : 3;
+      // A technician from the customer's branch: AC work to the AC team, the rest to the appliance technician.
+      const local = techs.filter((t) => t.branch === cust.branch);
+      const pool = local.filter((t) => t.ac === isAc);
+      const tech = pick(pool.length ? pool : local.length ? local : techs);
       at(created + between(0.3, 3) * HOUR);
-      await assignTechnician(db, settings, id, techIds[techIndex]);
-      if (r() < 0.6) await logCustomerContact(db, settings, id, 'Visit confirmed', pick(['Customer will be home after 2 pm.', 'Security at the gate informed.', 'Visit agreed for tomorrow morning.']));
+      await assignTechnician(db, settings, id, tech.id);
+      if (r() < 0.6) await logCustomerContact(db, settings, id, 'Visit confirmed', pick(['Customer will be home after 2 pm.', 'Estate gate security informed.', 'Visit agreed for tomorrow morning.']));
       if (stage === 'Assigned') continue;
 
       const workStart = created + between(4, 30) * HOUR;
@@ -502,7 +534,7 @@ export async function loadDemoData(db: ServiceDB, settings: AppSettings, days = 
       const c = (await db.complaints.get(id)) as Complaint;
 
       // Gas and spares, as the store would issue them.
-      const techGas = TECHNICIANS[techIndex].gas;
+      const techGas = tech.gas;
       const issue = async (item: InventoryItem | undefined, qty: number, overReason: string) => {
         if (!item || !(qty > 0)) return;
         qty = Number(qty.toFixed(item.unit === 'pcs' ? 0 : 3));

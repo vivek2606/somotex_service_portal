@@ -64,6 +64,7 @@ export interface Technician {
   phone: string;
   skills: string;
   active: boolean;
+  branch?: string;
 }
 
 export interface Equipment {
@@ -102,6 +103,8 @@ export interface Complaint {
   /** Who closed it (cleared if re-opened). */
   closedBy?: string;
   closedByEmail?: string;
+  /** Branch handling the complaint. */
+  branch?: string;
   priority: Priority;
   status: ComplaintStatus;
   technicianId?: string;
@@ -262,4 +265,6 @@ export interface SyncMeta {
   _serverAt?: string;
   /** Why the server rejected the last attempt to send this row. */
   _syncError?: string;
+  /** Order in which the row was created on this device (upload order). */
+  _seq?: number;
 }

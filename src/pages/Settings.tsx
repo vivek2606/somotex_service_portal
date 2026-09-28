@@ -75,7 +75,7 @@ export default function Settings() {
                 <input value={s.companyName} onChange={(e) => setS({ ...s, companyName: e.target.value })} />
               </label>
               <label className="field">
-                Country dialling code <span className="hint">for WhatsApp / SMS, e.g. 265</span>
+                Country dialling code <span className="hint">for WhatsApp / SMS, e.g. 234</span>
                 <input value={s.countryCode} onChange={(e) => setS({ ...s, countryCode: e.target.value.replace(/\D/g, '') })} />
               </label>
               <label className="field">
@@ -141,6 +141,19 @@ export default function Settings() {
             <button style={{ marginTop: 10 }} onClick={() => setS({ ...s, brands: [...s.brands, { name: '', inHouse: false }] })}>
               Add brand
             </button>
+          </div>
+
+          <div className="card">
+            <h2>Branches</h2>
+            <label className="field">
+              One per line. Complaints and technicians are assigned to a branch.
+              <textarea
+                rows={7}
+                value={s.branches.join('\n')}
+                onChange={(e) => setS({ ...s, branches: e.target.value.split('\n') })}
+                onBlur={() => setS({ ...s, branches: s.branches.map((b) => b.trim()).filter(Boolean) })}
+              />
+            </label>
           </div>
 
           <div className="card">

@@ -151,7 +151,7 @@ const KB: Record<ProductGroup, GroupDef> = {
           { q: 'trip', a: 'Yes', w: 2 },
           { q: 'outdoor', a: 'Starts then stops', w: 1 },
         ],
-        keywords: [[/voltage|power cut|stabili[sz]er|breaker|trip|escom|low power/, 3]],
+        keywords: [[/voltage|power cut|stabili[sz]er|breaker|trip|nepa|phcn|light (went|goes|is) off|low (power|current)|generator/, 3]],
       },
       {
         id: 'ac-pcb',

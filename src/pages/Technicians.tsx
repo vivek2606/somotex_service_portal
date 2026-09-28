@@ -2,16 +2,18 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
+import { useSettings } from '../components/SettingsContext';
 import { Empty, Loading, useAction } from '../components/ui';
 import { db, newId } from '../db/db';
 import { isOpen } from '../db/service';
 import type { Technician } from '../db/types';
 
-const blank: Omit<Technician, 'id'> = { name: '', phone: '', skills: '', active: true };
+const blank: Omit<Technician, 'id'> = { name: '', phone: '', skills: '', active: true, branch: '' };
 
 export default function Technicians() {
   const { run, busy } = useAction();
   const { can } = useAuth();
+  const settings = useSettings();
   const [f, setF] = useState(blank);
   const [editId, setEditId] = useState<string>();
   const data = useLiveQuery(async () => {
@@ -31,8 +33,8 @@ export default function Technicians() {
     e.preventDefault();
     run(async () => {
       if (!f.name.trim()) throw new Error('Enter a name');
-      if (editId) await db.technicians.update(editId, f);
-      else await db.technicians.add({ ...f, id: newId(), name: f.name.trim() });
+      if (editId) await db.technicians.update(editId, { ...f, branch: f.branch || undefined });
+      else await db.technicians.add({ ...f, id: newId(), name: f.name.trim(), branch: f.branch || undefined });
       setF(blank);
       setEditId(undefined);
     }, 'Saved');
@@ -65,7 +67,7 @@ export default function Technicians() {
                       <td>
                         {t.name}
                         <div className="small muted">
-                          <a href={`tel:${t.phone}`}>{t.phone}</a> {t.skills && `· ${t.skills}`}
+                          <a href={`tel:${t.phone}`}>{t.phone}</a> {t.branch && `· ${t.branch}`} {t.skills && `· ${t.skills}`}
                         </div>
                       </td>
                       <td className="num">
@@ -77,7 +79,7 @@ export default function Technicians() {
                           className="sm"
                           onClick={() => {
                             setEditId(t.id);
-                            setF({ name: t.name, phone: t.phone, skills: t.skills, active: t.active });
+                            setF({ name: t.name, phone: t.phone, skills: t.skills, active: t.active, branch: t.branch ?? '' });
                           }}
                         >
                           Edit
@@ -101,6 +103,15 @@ export default function Technicians() {
             <label className="field">
               Phone
               <input type="tel" value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} />
+            </label>
+            <label className="field span-all">
+              Branch
+              <select value={f.branch ?? ''} onChange={(e) => setF({ ...f, branch: e.target.value })}>
+                <option value="">Any branch</option>
+                {settings.branches.map((b) => (
+                  <option key={b}>{b}</option>
+                ))}
+              </select>
             </label>
             <label className="field span-all">
               Skills

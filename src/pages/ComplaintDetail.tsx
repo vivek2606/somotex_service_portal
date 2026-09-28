@@ -91,6 +91,7 @@ function Detail({ c }: { c: Complaint }) {
         <div>
           <h1>
             {c.ticketNo} <StatusBadge status={c.status} /> <PriorityBadge priority={c.priority} />
+            {c.branch && <span className="badge" style={{ marginLeft: 6 }}>{c.branch}</span>}
           </h1>
           <div className="small muted">
             Logged {fmtDateTime(c.createdAt)} by {c.loggedBy}
@@ -257,7 +258,20 @@ function Detail({ c }: { c: Complaint }) {
 
         <div className="stack">
           <div className="card">
-            <h2>Technician</h2>
+            <h2>Technician &amp; branch</h2>
+            <label className="field" style={{ marginBottom: 8 }}>
+              Branch
+              <select
+                value={c.branch ?? ''}
+                disabled={busy}
+                onChange={(e) => run(() => updateJobDetails(db, settings, id, { branch: e.target.value || undefined }), 'Branch updated')}
+              >
+                <option value="">Not set</option>
+                {settings.branches.map((b) => (
+                  <option key={b}>{b}</option>
+                ))}
+              </select>
+            </label>
             <div className="row">
               <select
                 value={c.technicianId ?? ''}
@@ -268,9 +282,11 @@ function Detail({ c }: { c: Complaint }) {
                 <option value="">Unassigned</option>
                 {technicians
                   ?.filter((t) => t.active || t.id === c.technicianId)
+                  .sort((x, y) => Number(y.branch === c.branch) - Number(x.branch === c.branch) || x.name.localeCompare(y.name))
                   .map((t) => (
                     <option key={t.id} value={t.id}>
                       {t.name}
+                      {t.branch && t.branch !== c.branch ? ` (${t.branch})` : ''}
                     </option>
                   ))}
               </select>
@@ -737,7 +753,7 @@ function CustomerUpdateCard({ c, customerName, phone, techName }: { c: Complaint
   );
 }
 
-/** Converts a local number such as 0888 123 456 to 265888123456. */
+/** Converts a local number such as 0803 123 4567 to 2348031234567. */
 function toInternational(phone: string, countryCode: string) {
   const digits = phone.replace(/\D/g, '');
   if (digits.startsWith('00')) return digits.slice(2);
