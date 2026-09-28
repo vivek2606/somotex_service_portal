@@ -4,6 +4,7 @@ import { useSettings } from '../components/SettingsContext';
 import { fmtDuration, fmtMoney, fmtNum, Loading, SeverityBadge, StatusBadge } from '../components/ui';
 import { db } from '../db/db';
 import { gasJobStats, isOpen, OPEN_STATUSES } from '../db/service';
+import { isMissedVisit, localDay } from '../db/visits';
 
 export default function Dashboard() {
   const settings = useSettings();
@@ -26,7 +27,12 @@ export default function Dashboard() {
     const complaints = new Map(
       (await db.complaints.bulkGet([...new Set(alerts.map((a) => a.complaintId))])).filter(Boolean).map((c) => [c!.id, c!]),
     );
+    const today = localDay(now);
     return {
+      visitsToday: open.filter((c) => c.visitDate === today).length,
+      missedVisits: open.filter((c) => isMissedVisit(c, now)).length,
+      requestsWaiting: await db.requests.where('status').anyOf('Requested', 'Approved').count(),
+      cylindersOut: await db.cylinders.where('status').equals('Out').count(),
       open,
       overdue: open.filter((c) => c.dueAt < nowIso),
       unassigned: open.filter((c) => !c.technicianId),
@@ -69,6 +75,16 @@ export default function Dashboard() {
         <Link to="/complaints?status=Registered" className={`card kpi ${data.unassigned.length ? 'warn' : ''}`}>
           <div className="label">Not yet assigned</div>
           <div className="value">{data.unassigned.length}</div>
+        </Link>
+        <Link to="/schedule" className={`card kpi ${data.missedVisits ? 'bad' : ''}`}>
+          <div className="label">Visits today</div>
+          <div className="value">{data.visitsToday}</div>
+          <div className="small muted">{data.missedVisits ? `${data.missedVisits} missed` : 'none missed'}</div>
+        </Link>
+        <Link to="/requests" className={`card kpi ${data.requestsWaiting ? 'warn' : ''}`}>
+          <div className="label">Branch requests to action</div>
+          <div className="value">{data.requestsWaiting}</div>
+          <div className="small muted">{data.cylindersOut} cylinder(s) out</div>
         </Link>
         <Link to="/complaints?status=Awaiting Parts" className="card kpi">
           <div className="label">Awaiting parts</div>

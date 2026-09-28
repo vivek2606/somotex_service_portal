@@ -181,7 +181,27 @@ do $$ begin
   assert exists (select 1 from public.ticket_counters), 'counter kept while real complaints exist';
 end $$;
 
--- 12. Anonymous visitors see nothing but the staff count.
+-- 12. Cylinders and branch requests: staff write; only the head approves.
+set role authenticated;
+select pg_temp.act_as(:'exec1');
+insert into public.cylinders (id, data) values ('cy1', '{"tag": "R32-01", "status": "In store"}');
+insert into public.cylinder_moves (id, data) values ('cm1', '{"cylinderId": "cy1", "outReading": 17.5}');
+update public.cylinder_moves set data = data || '{"inReading": 16.3}' where id = 'cm1';
+insert into public.requests (id, data) values ('rq1', '{"ref": "REQ-1", "status": "Requested", "branch": "Abuja"}');
+select pg_temp.expect_error($$update public.requests set data = data || '{"status": "Approved"}' where id = 'rq1'$$, '%Only the Service Head%');
+select pg_temp.expect_error($$insert into public.requests (id, data) values ('rq2', '{"status": "Approved"}')$$, '%Only the Service Head%');
+insert into public.movements (id, data) values ('ml1', '{"itemId": "r32", "kind": "Receipt", "qty": 2}'), ('ml2', '{"itemId": "r32", "kind": "Loss", "qty": -0.5}');
+select pg_temp.act_as(:'head_id');
+update public.requests set data = data || '{"status": "Approved"}' where id = 'rq1';
+select pg_temp.act_as(:'exec1');
+update public.requests set data = data || '{"status": "Dispatched"}' where id = 'rq1';
+reset role;
+do $$ begin
+  assert (select data ->> 'inReading' from public.cylinder_moves where id = 'cm1') = '16.3', 'weigh-in saved';
+  assert (select data ->> 'status' from public.requests where id = 'rq1') = 'Dispatched', 'request moved on by staff after approval';
+end $$;
+
+-- 13. Anonymous visitors see nothing but the staff count.
 set role anon;
 select pg_temp.act_as(null);
 do $$ begin

@@ -10,6 +10,9 @@ import { issuePlan } from '../lib/consumption';
 import { applyWarranty } from '../lib/warranty';
 import { DEMO_PREFIX, newId, runtime, type ServiceDB } from './db';
 import { seedIfEmpty } from './seed';
+import { contentAt, refillCylinder, registerCylinder, weighIn, weighOut } from './cylinders';
+import { createRequest, decideRequest, dispatchRequest, receiveRequest } from './requests';
+import { localDay, scheduleVisit } from './visits';
 import {
   acknowledgeAlert,
   assignTechnician,
@@ -37,6 +40,7 @@ import type {
   ProductCategory,
   Refrigerant,
 } from './types';
+import { VISIT_SLOTS } from './types';
 
 /** Small deterministic random generator so the demo looks the same each time. */
 function rng(seed: number) {
@@ -413,6 +417,27 @@ export async function loadDemoData(db: ServiceDB, settings: AppSettings, days = 
       if (topUp) await receiveStock(db, settings, item.id, topUp, 'Demo GRN 1042');
     }
 
+    // Tagged cylinders in the Lagos store (their gas is part of the stock received above).
+    const cylDefs: { tag: string; sku: string; tareKg?: number; capacityL?: number; reading: number }[] = [
+      { tag: 'R32-01', sku: 'REF-R32', tareKg: 7.5, reading: 17.5 },
+      { tag: 'R32-02', sku: 'REF-R32', tareKg: 7.5, reading: 17.4 },
+      { tag: 'R410A-01', sku: 'REF-R410A', tareKg: 8.2, reading: 19.5 },
+      { tag: 'R410A-02', sku: 'REF-R410A', tareKg: 8.2, reading: 19.4 },
+      { tag: 'N2-01', sku: 'GAS-N2', capacityL: 50, reading: 150 },
+      { tag: 'O2-01', sku: 'GAS-O2', capacityL: 50, reading: 150 },
+    ];
+    at(start - 2 * DAY);
+    const cylinderIds: string[] = [];
+    for (const d of cylDefs) {
+      const item = bySku.get(d.sku);
+      if (!item) continue;
+      cylinderIds.push(
+        await registerCylinder(db, settings, { tag: d.tag, itemId: item.id, tareKg: d.tareKg, capacityL: d.capacityL, reading: d.reading, alreadyInStock: true }),
+      );
+    }
+    let lossShown = false;
+    let overdueShown = false;
+
     // Customers are created with their first complaint and reused for repeat business.
     const customers: { id?: string; branch: string; data: Omit<Customer, 'id' | 'createdAt'>; units: Equipment[] }[] = [];
     const phone = () => `${pick(['0803', '0806', '0813', '0816', '0703', '0706', '0905', '0802'])} ${whole(100, 999)} ${whole(1000, 9999)}`;
@@ -512,6 +537,10 @@ export async function loadDemoData(db: ServiceDB, settings: AppSettings, days = 
       const tech = pick(pool.length ? pool : local.length ? local : techs);
       at(created + between(0.3, 3) * HOUR);
       await assignTechnician(db, settings, id, tech.id);
+      // Book the visit: next day for jobs not yet started (older ones end up missed).
+      const visitAt = new Date(created + (stage === 'Assigned' ? DAY : between(4, 30) * HOUR));
+      const slot = visitAt.getHours() < 12 ? VISIT_SLOTS[0] : visitAt.getHours() < 16 ? VISIT_SLOTS[1] : VISIT_SLOTS[2];
+      await scheduleVisit(db, settings, id, { date: localDay(visitAt), slot });
       if (r() < 0.6) await logCustomerContact(db, settings, id, 'Visit confirmed', pick(['Customer will be home after 2 pm.', 'Estate gate security informed.', 'Visit agreed for tomorrow morning.']));
       if (stage === 'Assigned') continue;
 
@@ -549,7 +578,33 @@ export async function loadDemoData(db: ServiceDB, settings: AppSettings, days = 
         const plan = ref && issuePlan(ref, c, settings.norms);
         // One job in eight goes badly over, with the wrong kind of excuse.
         const blowout = r() < 0.12 ? between(1.4, 1.8) : 1;
-        if (plan) await issue(ref, plan.expected * between(...sc.gasShare!) * techGas * blowout, pick(['Leak not found first time, recharged twice', 'Cylinder valve leaking, lost gas', 'Long pipe run on site']));
+        const qty = plan ? Number((plan.expected * between(...sc.gasShare!) * techGas * blowout).toFixed(2)) : 0;
+        // Lagos jobs take a tagged cylinder and weigh it out and back in.
+        const cyl =
+          ref && cust.branch === branches[0]
+            ? (await db.cylinders.bulkGet(cylinderIds)).find((x) => x && x.itemId === ref.id && x.status === 'In store')
+            : undefined;
+        if (cyl && qty > 0) {
+          if (contentAt(cyl, cyl.lastReading) < qty + 0.5) {
+            // Refill to a full cylinder (or enough for a big job such as a VRF recharge).
+            at(workStart - HOUR);
+            await refillCylinder(db, settings, cyl.id, Number((cyl.tareKg! + Math.max(10, qty + 2)).toFixed(2)), 'Demo refill');
+          }
+          const fresh = (await db.cylinders.get(cyl.id))!;
+          // Once, the cylinder weighs less than it did in the store: a leak or unbooked use.
+          const reading = !lossShown && r() < 0.3 ? ((lossShown = true), Number((fresh.lastReading - 0.35).toFixed(2))) : fresh.lastReading;
+          at(workStart);
+          await weighOut(db, settings, { cylinderId: cyl.id, reading, complaintId: id });
+          // Once, a cylinder stays out with the technician (overdue).
+          if (stage === 'In Progress' && !overdueShown) {
+            overdueShown = true;
+          } else {
+            at(workStart + between(3, 8) * HOUR);
+            await weighIn(db, settings, { cylinderId: cyl.id, reading: Number((reading - qty).toFixed(2)) });
+          }
+        } else if (plan) {
+          await issue(ref, qty, pick(['Leak not found first time, recharged twice', 'Cylinder valve leaking, lost gas', 'Long pipe run on site']));
+        }
       }
       if (joints) {
         const fuel = gasFor((i) => i.type === 'Brazing Gas' && i.brazingMethod === method && i.sku !== 'GAS-O2');
@@ -570,7 +625,27 @@ export async function loadDemoData(db: ServiceDB, settings: AppSettings, days = 
         const p = f && issuePlan(f, c, settings.norms);
         if (p) await issue(f, p.expected, 'Heavy contamination');
       }
-      for (const sku of sc.spares ?? []) await issue(bySku.get(sku), 1, 'Replacement part');
+      // Branches get spares from the Lagos store through a request.
+      let partsArrive = workStart;
+      for (const sku of sc.spares ?? []) {
+        const part = bySku.get(sku);
+        if (!part) continue;
+        if (cust.branch === branches[0]) {
+          await issue(part, 1, 'Replacement part');
+          continue;
+        }
+        at(workStart + HOUR);
+        const reqId = await createRequest(db, settings, { branch: cust.branch, complaintId: id, lines: [{ itemId: part.id, qty: 1 }], reason: 'Faulty part found on site' });
+        at(workStart + between(2, 5) * HOUR);
+        await decideRequest(db, settings, reqId, true);
+        if (stage === 'Awaiting Parts' && r() < 0.5) continue; // approved, not yet sent
+        at(workStart + between(6, 10) * HOUR);
+        await dispatchRequest(db, settings, reqId, { waybill: `GIGL-${whole(100000, 999999)}`, carrier: 'GIG Logistics' });
+        if (stage === 'Awaiting Parts') continue; // in transit
+        partsArrive = workStart + between(20, 40) * HOUR;
+        at(partsArrive);
+        await receiveRequest(db, settings, reqId, 'Received in good condition');
+      }
       // Now and then refrigerant goes out on a job that shouldn't need any.
       if (!isGasJob && isAc && r() < 0.15 && eq.refrigerant) {
         await issue(gasFor((i) => i.type === 'Refrigerant' && i.refrigerant === eq.refrigerant), between(0.3, 0.6), 'Technician asked for gas "just in case"');
@@ -578,12 +653,15 @@ export async function loadDemoData(db: ServiceDB, settings: AppSettings, days = 
 
       if (stage === 'In Progress') continue;
       if (stage === 'Awaiting Parts') {
-        at(workStart + 2 * HOUR);
-        await setStatus(db, settings, id, 'Awaiting Parts', 'Part ordered from supplier');
+        const now = (await db.complaints.get(id))!;
+        if (now.status !== 'Awaiting Parts') {
+          at(workStart + 2 * HOUR);
+          await setStatus(db, settings, id, 'Awaiting Parts', 'Part ordered from supplier');
+        }
         continue;
       }
 
-      const done = workStart + between(1, sc.priority === 'Critical' ? 10 : 60) * HOUR;
+      const done = Math.max(workStart + between(1, sc.priority === 'Critical' ? 10 : 60) * HOUR, partsArrive + between(2, 8) * HOUR);
       at(done);
       await updateJobDetails(db, settings, id, {
         confirmedCauseId: r() < 0.85 ? sc.cause : undefined,

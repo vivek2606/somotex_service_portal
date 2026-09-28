@@ -42,7 +42,8 @@ export type Permission =
   | 'adjustStock'
   | 'reviewAlerts'
   | 'reopenOrCancel'
-  | 'backupRestore';
+  | 'backupRestore'
+  | 'approveRequests';
 
 /** Executives run the helpdesk; everything that changes controls is for the Service Head. */
 const HEAD_ONLY: Permission[] = [
@@ -55,6 +56,7 @@ const HEAD_ONLY: Permission[] = [
   'reviewAlerts',
   'reopenOrCancel',
   'backupRestore',
+  'approveRequests',
 ];
 
 export function can(user: Pick<User, 'role'> | undefined, p: Permission): boolean {

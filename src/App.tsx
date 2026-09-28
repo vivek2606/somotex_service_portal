@@ -21,6 +21,9 @@ const Inventory = lazy(() => import('./pages/Inventory'));
 const ItemDetail = lazy(() => import('./pages/ItemDetail'));
 const StockImport = lazy(() => import('./pages/StockImport'));
 const Reorder = lazy(() => import('./pages/Reorder'));
+const Cylinders = lazy(() => import('./pages/Cylinders'));
+const Requests = lazy(() => import('./pages/Requests'));
+const Schedule = lazy(() => import('./pages/Schedule'));
 const GasEfficiency = lazy(() => import('./pages/GasEfficiency'));
 const Alerts = lazy(() => import('./pages/Alerts'));
 const Reports = lazy(() => import('./pages/Reports'));
@@ -77,6 +80,8 @@ function Shell() {
   const { user, logout, can } = useAuth();
   const online = useOnline();
   const openCount = useLiveQuery(() => db.complaints.where('status').anyOf(OPEN_STATUSES).count(), []);
+  // Requests someone at Lagos needs to act on: approve or dispatch.
+  const requestCount = useLiveQuery(() => db.requests.where('status').anyOf('Requested', 'Approved').count(), []);
   const alertCount = useLiveQuery(
     () => db.alerts.filter((a) => !a.acknowledged && !a.cleared && a.severity !== 'info').count(),
     [],
@@ -85,8 +90,11 @@ function Shell() {
   const nav = [
     { to: '/', label: 'Dashboard', icon: 'dashboard', end: true },
     { to: '/complaints', label: 'Complaints', icon: 'complaints', count: openCount },
+    { to: '/schedule', label: 'Schedule', icon: 'dashboard' },
     { to: '/customers', label: 'Customers', icon: 'customers' },
     { to: '/inventory', label: 'Inventory', icon: 'inventory' },
+    { to: '/requests', label: 'Branch requests', icon: 'complaints', count: requestCount },
+    { to: '/cylinders', label: 'Cylinders', icon: 'inventory' },
     { to: '/gas', label: 'Gas efficiency', icon: 'reports' },
     { to: '/alerts', label: 'Alerts', icon: 'alerts', count: alertCount, bad: true },
     { to: '/reports', label: 'Reports', icon: 'reports' },
@@ -147,6 +155,9 @@ function Shell() {
             <Route path="/inventory/import" element={<StockImport />} />
             <Route path="/inventory/reorder" element={<Reorder />} />
             <Route path="/inventory/:id" element={<ItemDetail />} />
+            <Route path="/cylinders" element={<Cylinders />} />
+            <Route path="/requests" element={<Requests />} />
+            <Route path="/schedule" element={<Schedule />} />
             <Route path="/gas" element={<GasEfficiency />} />
             <Route path="/alerts" element={<Alerts />} />
             <Route path="/reports" element={<Reports />} />

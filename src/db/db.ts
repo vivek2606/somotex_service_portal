@@ -1,7 +1,10 @@
 import Dexie, { type EntityTable, type Transaction } from 'dexie';
 import type { User } from './auth';
 import type {
+  BranchRequest,
   Complaint,
+  Cylinder,
+  CylinderMove,
   ComplaintLog,
   ConsumptionAlert,
   Customer,
@@ -15,7 +18,19 @@ import type {
 type Synced<T> = T & SyncMeta;
 
 /** Tables shared between devices, in the order they are sent (parents first). */
-export const SYNCED_TABLES = ['settings', 'technicians', 'items', 'customers', 'complaints', 'movements', 'logs', 'alerts'] as const;
+export const SYNCED_TABLES = [
+  'settings',
+  'technicians',
+  'items',
+  'customers',
+  'complaints',
+  'cylinders',
+  'requests',
+  'movements',
+  'cylinderMoves',
+  'logs',
+  'alerts',
+] as const;
 export type SyncedTable = (typeof SYNCED_TABLES)[number];
 
 /** Rows that are never changed after creation. */
@@ -38,6 +53,9 @@ export class ServiceDB extends Dexie {
   movements!: EntityTable<Synced<StockMovement>, 'id'>;
   alerts!: EntityTable<Synced<ConsumptionAlert>, 'id'>;
   settings!: EntityTable<Synced<Setting>, 'id'>;
+  cylinders!: EntityTable<Synced<Cylinder>, 'id'>;
+  cylinderMoves!: EntityTable<Synced<CylinderMove>, 'id'>;
+  requests!: EntityTable<Synced<BranchRequest>, 'id'>;
   /** Accounts for local (single-device) mode only. */
   users!: EntityTable<User, 'id'>;
   /** Sync cursors and other device-local state. */
@@ -57,6 +75,13 @@ export class ServiceDB extends Dexie {
       settings: 'id, _dirty',
       users: 'id, &email',
       meta: '&key',
+    });
+    this.version(2).stores({
+      complaints:
+        'id, ticketNo, customerId, status, priority, technicianId, createdAt, closedAt, dueAt, visitDate, branch, equipment.brand, equipment.category, equipment.serialNo, _dirty',
+      cylinders: 'id, tag, itemId, status, _dirty',
+      cylinderMoves: 'id, cylinderId, itemId, complaintId, outAt, inAt, _dirty',
+      requests: 'id, ref, branch, status, complaintId, requestedAt, _dirty',
     });
     markLocalChanges(this);
   }

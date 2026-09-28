@@ -221,11 +221,12 @@ export async function getComplaint(db: ServiceDB, id: string): Promise<Complaint
 
 // ---------------------------------------------------------------- inventory
 
-function round(n: number) {
+export function round(n: number) {
   return Math.round(n * 1000) / 1000;
 }
 
-async function move(db: ServiceDB, m: Omit<StockMovement, 'id' | 'at'>) {
+/** Records a stock movement and updates the local stock figure. */
+export async function recordMovement(db: ServiceDB, m: Omit<StockMovement, 'id' | 'at'>) {
   const item = await db.items.get(m.itemId);
   if (!item) throw new Error('Item not found');
   const newStock = round(item.stock + m.qty);
@@ -267,7 +268,7 @@ export async function issueToComplaint(
     );
   }
   await db.transaction('rw', db.items, db.movements, db.logs, async () => {
-    const item = await move(db, {
+    const item = await recordMovement(db, {
       itemId,
       kind: 'Issue',
       qty: -qty,
@@ -326,7 +327,7 @@ export async function returnFromComplaint(
   if (!used || used.qty < qty) throw new Error('You can’t return more than was issued to this job');
   const c = await getComplaint(db, complaintId);
   await db.transaction('rw', db.items, db.movements, db.logs, async () => {
-    const item = await move(db, {
+    const item = await recordMovement(db, {
       itemId,
       kind: 'Return',
       qty,
@@ -351,7 +352,7 @@ export async function receiveStock(
 ) {
   if (!(qty > 0)) throw new Error('Quantity must be greater than zero');
   await db.transaction('rw', db.items, db.movements, async () => {
-    await move(db, { itemId, kind: 'Receipt', qty, reference, by: settings.currentUser, byEmail: settings.currentUserEmail });
+    await recordMovement(db, { itemId, kind: 'Receipt', qty, reference, by: settings.currentUser, byEmail: settings.currentUserEmail });
     if (unitCost !== undefined && unitCost >= 0) await db.items.update(itemId, { unitCost });
   });
 }
@@ -364,7 +365,7 @@ export async function adjustStock(db: ServiceDB, settings: AppSettings, itemId: 
     if (!item) throw new Error('Item not found');
     const delta = round(countedQty - item.stock);
     if (delta === 0) return;
-    await move(db, { itemId, kind: 'Adjustment', qty: delta, note, by: settings.currentUser, byEmail: settings.currentUserEmail });
+    await recordMovement(db, { itemId, kind: 'Adjustment', qty: delta, note, by: settings.currentUser, byEmail: settings.currentUserEmail });
   });
 }
 
@@ -424,7 +425,7 @@ export async function importStockRows(db: ServiceDB, settings: AppSettings, rows
       if (stock !== undefined && stock >= 0 && item) {
         const delta = round(stock - item.stock);
         if (delta !== 0) {
-          await move(db, {
+          await recordMovement(db, {
             itemId: item.id,
             kind: item.stock === 0 && delta > 0 ? 'Receipt' : 'Adjustment',
             qty: delta,

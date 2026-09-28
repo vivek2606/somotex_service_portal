@@ -159,3 +159,27 @@ describe('nitrogen purging and MAPP', () => {
     expect(evaluateJob(job({ brazingMethod: 'Oxy-Acetylene', brazedJoints: 3 }), [{ item: mapp, qty: 0.08 }])[0].code).toBe('unexpected-use');
   });
 });
+
+describe('typical split charges', () => {
+  const split = (capacity: number, unit: 'HP' | 'BTU/h', refrigerant: 'R32' | 'R410A' | 'R22', inverter?: boolean): Equipment => ({
+    ...splitAc, capacity, capacityUnit: unit, refrigerant, inverter,
+  });
+
+  it('uses the market HP convention', () => {
+    expect(capacityToKw(1.5, 'HP')! * 3412.14).toBeCloseTo(12000, 0);
+    expect(capacityToKw(2, 'HP')! * 3412.14).toBeCloseTo(18000, 0);
+  });
+
+  it('picks the typical charge by size, type and refrigerant', () => {
+    expect(estimateNominalCharge(split(1.5, 'HP', 'R32', true))).toEqual({ nominalG: 560, basis: 'typical' });
+    expect(estimateNominalCharge(split(2, 'HP', 'R410A', false))).toEqual({ nominalG: 1300, basis: 'typical' });
+    expect(estimateNominalCharge(split(9000, 'BTU/h', 'R22', false)).nominalG).toBe(700);
+    // Unknown type: the larger figure, so budgets aren't too tight.
+    expect(estimateNominalCharge(split(1, 'HP', 'R410A')).nominalG).toBe(700);
+  });
+
+  it('prefers the nameplate and falls back to capacity for other sizes', () => {
+    expect(estimateNominalCharge({ ...split(1.5, 'HP', 'R32', true), nameplateChargeG: 600 }).basis).toBe('nameplate');
+    expect(estimateNominalCharge(split(36000, 'BTU/h', 'R410A', true)).basis).toBe('capacity');
+  });
+});

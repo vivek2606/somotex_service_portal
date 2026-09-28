@@ -13,7 +13,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { exportAll, importAll } from '../db/service';
 import { saveSettings, type AppSettings } from '../db/settings';
 import { REFRIGERANTS, type JobType, type Priority } from '../db/types';
-import { DEFAULT_NORMS } from '../lib/consumption';
+import { btuToHpLabel, DEFAULT_NORMS } from '../lib/consumption';
 import { ANY, type WarrantyRule } from '../lib/warranty';
 import { downloadText } from '../lib/csv';
 
@@ -316,6 +316,49 @@ export default function Settings() {
           </div>
 
           <div className="card">
+            <h2>Typical nameplate charge: wall split ACs</h2>
+            <p className="small muted">
+              Used when the complaint has no nameplate charge. 1 HP = 9,000 BTU/h, 1.5 HP = 12,000, 2 HP = 18,000. These figures are
+              tentative; replace them with the charges printed on your Midea, AUX, Tamashi and Bruhm outdoor-unit labels.
+            </p>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Size</th>
+                    <th>Type</th>
+                    <th>Refrigerant</th>
+                    <th className="num">Charge (g)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {n.typicalSplitCharges.map((row, i) => (
+                    <tr key={`${row.btu}-${row.inverter}-${row.refrigerant}`}>
+                      <td>
+                        {btuToHpLabel(row.btu)} ({row.btu.toLocaleString()} BTU/h)
+                      </td>
+                      <td>{row.inverter ? 'Inverter' : 'Non-inverter'}</td>
+                      <td>{row.refrigerant}</td>
+                      <td>
+                        <input
+                          type="number"
+                          min="0"
+                          value={row.grams}
+                          onChange={(e) =>
+                            setNorms({
+                              typicalSplitCharges: n.typicalSplitCharges.map((x, j) => (j === i ? { ...x, grams: num(e.target.value) } : x)),
+                            })
+                          }
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="card">
             <h2>Job types</h2>
             <p className="small muted">Share of the full system charge each job type normally needs, and whether extra pipe charge applies.</p>
             <div className="table-wrap">
@@ -461,6 +504,9 @@ const TABLE_LABEL: Record<SyncedTable, string> = {
   movements: 'Stock movement',
   logs: 'Timeline entry',
   alerts: 'Alert',
+  cylinders: 'Cylinder',
+  cylinderMoves: 'Cylinder weighing',
+  requests: 'Branch request',
 };
 
 function SyncTab() {

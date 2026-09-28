@@ -36,6 +36,13 @@ describe('demo data', () => {
     expect(await db.technicians.count()).toBe(8);
     expect(new Set(complaints.map((c) => c.branch)).size).toBe(6);
     expect(complaints.filter((c) => c.technicianId).every((c) => c.branch)).toBe(true);
+    // Cylinders weighed out and in, a store loss, one still out; requests at several stages; visits booked (one missed).
+    expect(await db.cylinders.count()).toBeGreaterThanOrEqual(6);
+    expect((await db.cylinderMoves.toArray()).filter((m) => m.inAt).length).toBeGreaterThan(3);
+    expect(await db.movements.where('kind').equals('Loss').count()).toBeGreaterThanOrEqual(0);
+    const reqStatuses = new Set((await db.requests.toArray()).map((r) => r.status));
+    expect(reqStatuses.has('Received')).toBe(true);
+    expect((await db.complaints.toArray()).filter((c) => c.visitDate).length).toBeGreaterThan(30);
     expect(await hasDemoData(db)).toBe(true);
     await expect(loadDemoData(db, settings)).rejects.toThrow(/already loaded/);
   });
@@ -52,6 +59,8 @@ describe('demo data', () => {
     expect((await db.complaints.toArray()).map((c) => c.id)).toEqual([real]);
     expect(await db.technicians.count()).toBe(0);
     expect(await db.movements.count()).toBe(0);
+    expect(await db.cylinders.count()).toBe(0);
+    expect(await db.requests.count()).toBe(0);
     for (const item of await db.items.toArray()) expect(item.stock).toBe(0);
     expect(await db.items.count()).toBeGreaterThan(20); // catalogue stays
   });

@@ -17,7 +17,7 @@ import type {
   WarrantyStatus,
 } from '../db/types';
 import { REFRIGERANTS } from '../db/types';
-import { usesRefrigerant } from '../lib/consumption';
+import { btuToHpLabel, typicalSplitCharge, usesRefrigerant } from '../lib/consumption';
 import { diagnose, type Answers } from '../lib/diagnosis';
 import { applyWarranty, warrantyFor } from '../lib/warranty';
 import { WarrantyNote } from '../components/Warranty';
@@ -58,6 +58,7 @@ export default function NewComplaint() {
   // Warranty follows the invoice date and the rules in Settings unless set by hand (e.g. AMC).
   const [warrantyManual, setWarrantyManual] = useState(false);
   const autoWarranty = useMemo(() => warrantyFor(eq, settings.warrantyRules), [eq, settings.warrantyRules]);
+  const typical = useMemo(() => typicalSplitCharge(eq, settings.norms.typicalSplitCharges), [eq, settings.norms.typicalSplitCharges]);
   const [complaintType, setComplaintType] = useState(settings.complaintTypes[0]);
   const [statement, setStatement] = useState('');
   const [description, setDescription] = useState('');
@@ -399,6 +400,19 @@ export default function NewComplaint() {
                       ))}
                     </select>
                   </label>
+                  {eq.category === 'Residential AC' && (
+                    <label className="field">
+                      Compressor type
+                      <select
+                        value={eq.inverter === undefined ? '' : eq.inverter ? 'yes' : 'no'}
+                        onChange={(e) => setEq({ ...eq, inverter: e.target.value === '' ? undefined : e.target.value === 'yes' })}
+                      >
+                        <option value="">Don't know</option>
+                        <option value="yes">Inverter</option>
+                        <option value="no">Non-inverter</option>
+                      </select>
+                    </label>
+                  )}
                   <label className="field">
                     Nameplate charge (g) <span className="hint">improves gas checks</span>
                     <input
@@ -406,8 +420,19 @@ export default function NewComplaint() {
                       inputMode="numeric"
                       min="0"
                       value={eq.nameplateChargeG ?? ''}
+                      placeholder={typical ? `≈ ${typical.grams} typical` : ''}
                       onChange={(e) => setEq({ ...eq, nameplateChargeG: num(e.target.value) })}
                     />
+                    {typical && !eq.nameplateChargeG && (
+                      <span className="hint">
+                        Typical for {typical.btu / 1000}k BTU ({btuToHpLabel(typical.btu)}) {typical.inverter ? 'inverter' : 'non-inverter'}{' '}
+                        {typical.refrigerant}: {typical.grams} g (tentative).{' '}
+                        <button type="button" className="link" onClick={() => setEq({ ...eq, nameplateChargeG: typical.grams })}>
+                          Use this
+                        </button>{' '}
+                        Better: read it from the outdoor unit's label.
+                      </span>
+                    )}
                   </label>
                 </>
               )}

@@ -30,11 +30,14 @@ import {
   setStatus,
   updateJobDetails,
 } from '../db/service';
-import { BRAZING_METHODS, CALL_OUTCOMES, GAS_TYPES, type BrazingMethod, type CallOutcome, type Complaint, type ComplaintStatus, type JobType } from '../db/types';
+import { BRAZING_METHODS, CALL_OUTCOMES, GAS_TYPES, VISIT_SLOTS, type VisitSlot, type BrazingMethod, type CallOutcome, type Complaint, type ComplaintStatus, type JobType } from '../db/types';
 import { expectedRefrigerant, issuePlan, JOB_TYPES, usesRefrigerant } from '../lib/consumption';
 import { causesFor, diagnose, questionnaire } from '../lib/diagnosis';
 import { applyWarranty, warrantyFor } from '../lib/warranty';
 import { WarrantyNote } from '../components/Warranty';
+import { CylinderPanel } from '../components/CylinderPanel';
+import { toInternational } from '../lib/phone';
+import { isMissedVisit, scheduleVisit } from '../db/visits';
 
 const NEXT: Record<ComplaintStatus, ComplaintStatus[]> = {
   Registered: ['Assigned', 'In Progress', 'Cancelled'],
@@ -121,6 +124,11 @@ function Detail({ c }: { c: Complaint }) {
           <Link to={`/complaints/${id}/job-card`} className="btn">
             Job card
           </Link>
+          {isOpen(c) && (
+            <Link to={`/requests?complaint=${id}`} className="btn">
+              Request from Lagos
+            </Link>
+          )}
           {NEXT[c.status]
             // Executives move open jobs forward; re-opening and cancelling are for the Service Head.
             .filter((s) => canDo('reopenOrCancel') || (isOpen(c) && s !== 'Cancelled') || (c.status === 'Resolved' && s === 'Closed'))
@@ -300,6 +308,7 @@ function Detail({ c }: { c: Complaint }) {
           </div>
 
           {customer && <CustomerUpdateCard c={c} customerName={customer.name} phone={customer.phone} techName={tech?.name} />}
+          {isOpen(c) && <VisitCard c={c} />}
           <CustomerContactCard complaintId={id} />
           <NoteCard complaintId={id} />
 
@@ -612,6 +621,8 @@ function MaterialsCard({
         </div>
       </form>
 
+      {usesRefrigerant(c.equipment.category) && <CylinderPanel c={c} />}
+
       <h3 style={{ marginTop: 16 }}>Used on this job</h3>
       {!usage?.length ? (
         <Empty>Nothing issued yet.</Empty>
@@ -765,14 +776,6 @@ function CustomerUpdateCard({ c, customerName, phone, techName }: { c: Complaint
   );
 }
 
-/** Converts a local number such as 0803 123 4567 to 2348031234567. */
-function toInternational(phone: string, countryCode: string) {
-  const digits = phone.replace(/\D/g, '');
-  if (digits.startsWith('00')) return digits.slice(2);
-  if (digits.startsWith('0')) return countryCode + digits.slice(1);
-  if (digits.startsWith(countryCode)) return digits;
-  return countryCode + digits;
-}
 
 /** Warranty status with the invoice details, which can be added or corrected later. */
 function InvoiceWarranty({ c }: { c: Complaint }) {
@@ -824,5 +827,54 @@ function InvoiceWarranty({ c }: { c: Complaint }) {
         </button>
       </div>
     </>
+  );
+}
+
+/** Book or move the technician's visit. */
+function VisitCard({ c }: { c: Complaint }) {
+  const settings = useSettings();
+  const { run, busy } = useAction();
+  const [date, setDate] = useState(c.visitDate ?? '');
+  const [slot, setSlot] = useState<VisitSlot>(c.visitSlot ?? VISIT_SLOTS[0]);
+  useEffect(() => {
+    setDate(c.visitDate ?? '');
+    setSlot(c.visitSlot ?? VISIT_SLOTS[0]);
+  }, [c.visitDate, c.visitSlot]);
+  const missed = isMissedVisit(c);
+  const changed = date !== (c.visitDate ?? '') || slot !== c.visitSlot;
+  return (
+    <div className="card">
+      <h2>Visit</h2>
+      {c.visitDate ? (
+        <p className="small" style={{ marginTop: 0 }}>
+          Booked for <strong>{new Date(`${c.visitDate}T00:00:00`).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })}</strong>,{' '}
+          {c.visitSlot}
+          {missed && <span className="badge bad" style={{ marginLeft: 6 }}>Missed</span>}
+          {c.visitRemindedAt && <span className="muted"> · customer reminded</span>}
+        </p>
+      ) : (
+        <p className="small muted" style={{ marginTop: 0 }}>
+          No visit booked{c.preferredVisit ? `. Customer prefers: ${c.preferredVisit}` : ''}.
+        </p>
+      )}
+      <div className="row">
+        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ flex: '1 1 140px' }} />
+        <select value={slot} onChange={(e) => setSlot(e.target.value as VisitSlot)} style={{ flex: '1 1 150px' }}>
+          {VISIT_SLOTS.map((s) => (
+            <option key={s}>{s}</option>
+          ))}
+        </select>
+        <button
+          className="sm primary"
+          disabled={busy || !date || !changed}
+          onClick={() => {
+            const reason = c.visitDate ? prompt('Reason for moving the visit? (optional)') ?? undefined : undefined;
+            run(() => scheduleVisit(db, settings, c.id, { date, slot, reason }), c.visitDate ? 'Visit moved' : 'Visit booked');
+          }}
+        >
+          {c.visitDate ? 'Move' : 'Book'}
+        </button>
+      </div>
+    </div>
   );
 }

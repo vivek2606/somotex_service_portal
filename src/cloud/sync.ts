@@ -17,10 +17,10 @@ export interface RemoteRow {
 }
 
 export class RemoteError extends Error {
-  /** network: try again later; rejected: the server refused this data. */
+  /** network: try again later; rejected: the server refused this data; missing: the table isn't on the server yet. */
   constructor(
     message: string,
-    readonly kind: 'network' | 'rejected',
+    readonly kind: 'network' | 'rejected' | 'missing',
   ) {
     super(message);
   }
@@ -89,6 +89,8 @@ export class SyncEngine {
   private subs: Subscription[] = [];
   private unsubscribeRemote?: () => void;
   private readonly onOnline = () => this.schedule(0);
+  /** Tables the server doesn't have yet (its schema needs updating). */
+  private missing = new Set<SyncedTable>();
 
   constructor(
     private readonly db: ServiceDB,
@@ -156,11 +158,21 @@ export class SyncEngine {
     this.running = true;
     this.set({ status: 'syncing' });
     try {
+      this.missing.clear();
       do {
         this.again = false;
         await this.push();
         await this.pull();
       } while (this.again);
+      if (this.missing.size) {
+        this.set({
+          status: 'error',
+          message: 'Database update needed: the Service Head should run the latest supabase/schema.sql in Supabase.',
+          lastSyncAt: new Date().toISOString(),
+          ...(await this.counts()),
+        });
+        return;
+      }
       if (!this.state.initialised) {
         await this.db.meta.put({ key: 'initialised', value: true });
       }
@@ -177,14 +189,21 @@ export class SyncEngine {
 
   private async push() {
     for (const table of SYNCED_TABLES) {
+      if (this.missing.has(table)) continue;
       const rows = (await this.db.table(table).where('_dirty').equals(1).toArray()) as Record<string, unknown>[];
       // Send in the order things were created here: a receipt must reach the
       // server before the issue that draws on it, or the issue is refused.
       const seq = (r: Record<string, unknown>) => (r._seq as number | undefined) ?? 0;
       const when = (r: Record<string, unknown>) => String(r.at ?? r.createdAt ?? '');
       rows.sort((x, y) => seq(x) - seq(y) || when(x).localeCompare(when(y)));
-      for (let i = 0; i < rows.length; i += CHUNK) {
-        await this.pushChunk(table, rows.slice(i, i + CHUNK));
+      try {
+        for (let i = 0; i < rows.length; i += CHUNK) {
+          await this.pushChunk(table, rows.slice(i, i + CHUNK));
+        }
+      } catch (e) {
+        // A table the server doesn't have yet: keep syncing everything else.
+        if (e instanceof RemoteError && e.kind === 'missing') this.missing.add(table);
+        else throw e;
       }
     }
   }
@@ -195,6 +214,7 @@ export class SyncEngine {
     try {
       returned = await this.remote.upsert(table, payload, APPEND_ONLY.includes(table));
     } catch (e) {
+      if (e instanceof RemoteError && e.kind === 'missing') throw e;
       if (!(e instanceof RemoteError) || e.kind !== 'rejected' || payload.length === 1) {
         if (e instanceof RemoteError && e.kind === 'rejected') {
           await this.markRejected(table, payload[0].id, e.message);
@@ -268,12 +288,22 @@ export class SyncEngine {
 
   private async pull() {
     for (const table of SYNCED_TABLES) {
+      if (this.missing.has(table)) continue;
       const key = `pull:${table}`;
       const cursor = (await this.db.meta.get(key))?.value as string | undefined;
       let since = cursor ? new Date(new Date(cursor).getTime() - OVERLAP_MS).toISOString() : undefined;
       let newest = cursor;
       for (;;) {
-        const rows = await this.remote.pull(table, since, PAGE);
+        let rows: RemoteRow[];
+        try {
+          rows = await this.remote.pull(table, since, PAGE);
+        } catch (e) {
+          if (e instanceof RemoteError && e.kind === 'missing') {
+            this.missing.add(table);
+            break;
+          }
+          throw e;
+        }
         if (rows.length) {
           await this.applyPulled(table, rows);
           const last = rows[rows.length - 1].updated_at;

@@ -44,6 +44,9 @@ export type JobType =
   | 'Preventive Maintenance'
   | 'Other';
 
+export const VISIT_SLOTS = ['Morning (8–12)', 'Afternoon (12–4)', 'Evening (4–7)'] as const;
+export type VisitSlot = (typeof VISIT_SLOTS)[number];
+
 export type WarrantyStatus = 'In Warranty' | 'Out of Warranty' | 'AMC' | 'Unknown';
 
 export interface Customer {
@@ -77,6 +80,8 @@ export interface Equipment {
   refrigerant?: Refrigerant;
   /** Nameplate refrigerant charge in grams, when known. Overrides estimates. */
   nameplateChargeG?: number;
+  /** Inverter (variable-speed) unit; undefined when not known. */
+  inverter?: boolean;
   purchaseDate?: string;
   invoiceNo?: string;
   dealer?: string;
@@ -109,6 +114,11 @@ export interface Complaint {
   closedByEmail?: string;
   /** Branch handling the complaint. */
   branch?: string;
+  /** Booked visit: day (YYYY-MM-DD) and time slot. */
+  visitDate?: string;
+  visitSlot?: VisitSlot;
+  /** Customer reminded about the visit (ISO time). */
+  visitRemindedAt?: string;
   priority: Priority;
   status: ComplaintStatus;
   technicianId?: string;
@@ -219,7 +229,11 @@ export interface ItemNorm {
   perPressureTestKw?: number;
 }
 
-export type MovementKind = 'Receipt' | 'Issue' | 'Return' | 'Adjustment';
+/**
+ * Receipt/Issue/Return/Adjustment as before; Transfer = sent to a branch
+ * without a job; Loss = gas found missing from a cylinder in the store.
+ */
+export type MovementKind = 'Receipt' | 'Issue' | 'Return' | 'Adjustment' | 'Transfer' | 'Loss';
 
 export interface StockMovement {
   id: string;
@@ -234,6 +248,89 @@ export interface StockMovement {
   note?: string;
   by: string;
   byEmail?: string;
+  /** Branch the stock was sent to (transfers and dispatched requests). */
+  branch?: string;
+  /** Cylinder weighing that produced this movement. */
+  cylinderMoveId?: string;
+  /** Branch request that produced this movement. */
+  requestId?: string;
+}
+
+// ------------------------------------------------------------- cylinders
+
+/** How a cylinder's contents are measured: weight (refrigerants, LPG, MAPP) or pressure (oxygen, nitrogen). */
+export type CylinderMeasure = 'weight' | 'pressure';
+
+export interface Cylinder {
+  id: string;
+  /** Painted/stencilled tag, e.g. R32-07. */
+  tag: string;
+  itemId: string;
+  measure: CylinderMeasure;
+  /** Empty weight (kg), for weight-measured cylinders. */
+  tareKg?: number;
+  /** Water capacity (litres), for pressure-measured cylinders. */
+  capacityL?: number;
+  status: 'In store' | 'Out' | 'Retired';
+  /** Last reading: gross kg, or bar. */
+  lastReading: number;
+  lastReadingAt: string;
+  /** Checkout currently open, if out. */
+  openMoveId?: string;
+  notes?: string;
+  createdAt: string;
+}
+
+export interface CylinderMove {
+  id: string;
+  cylinderId: string;
+  itemId: string;
+  complaintId?: string;
+  technicianId?: string;
+  outAt: string;
+  outReading: number;
+  outBy: string;
+  inAt?: string;
+  inReading?: number;
+  inBy?: string;
+  /** Gas used, in the item's unit (kg or m³). */
+  used?: number;
+  note?: string;
+}
+
+// ------------------------------------------------------ branch requests
+
+export type RequestStatus = 'Requested' | 'Approved' | 'Rejected' | 'Dispatched' | 'Received' | 'Cancelled';
+
+export interface RequestLine {
+  itemId: string;
+  qty: number;
+  /** What was actually sent. */
+  sentQty?: number;
+}
+
+export interface BranchRequest {
+  id: string;
+  /** Short reference, e.g. REQ-7F3A. */
+  ref: string;
+  branch: string;
+  complaintId?: string;
+  lines: RequestLine[];
+  status: RequestStatus;
+  reason?: string;
+  requestedAt: string;
+  requestedBy: string;
+  requestedByEmail?: string;
+  decidedAt?: string;
+  decidedBy?: string;
+  decisionNote?: string;
+  dispatchedAt?: string;
+  dispatchedBy?: string;
+  waybill?: string;
+  carrier?: string;
+  receivedAt?: string;
+  receivedBy?: string;
+  receivedNote?: string;
 }
 
 export type AlertSeverity = 'info' | 'warning' | 'critical';

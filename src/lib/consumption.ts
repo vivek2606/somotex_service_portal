@@ -31,6 +31,68 @@ export interface JobFactor {
   pipeCharge: boolean;
 }
 
+/**
+ * Market convention for split ACs (as sold in Nigeria): 1 HP = 9,000 BTU/h,
+ * 1.5 HP = 12,000, 2 HP = 18,000, 2.5 HP = 24,000.
+ */
+const HP_BTU: Record<string, number> = { '0.75': 7000, '1': 9000, '1.5': 12000, '2': 18000, '2.5': 24000 };
+export function hpToBtu(hp: number): number {
+  return HP_BTU[String(hp)] ?? hp * 9000;
+}
+
+/** "1.5 HP" style label for a split AC size in BTU/h. */
+export function btuToHpLabel(btu: number): string {
+  const hit = Object.entries(HP_BTU).find(([, b]) => b === btu);
+  return `${hit ? hit[0] : (btu / 9000).toFixed(1)} HP`;
+}
+
+/** Typical factory (nameplate) charge of a wall split unit, used when the nameplate isn't known. */
+export interface TypicalSplitCharge {
+  btu: number;
+  inverter: boolean;
+  refrigerant: Exclude<Refrigerant, 'None'>;
+  grams: number;
+}
+
+/**
+ * Tentative figures: typical factory charges for Midea / AUX-class wall splits
+ * with the standard pre-charged pipe. Replace them with the figures on your
+ * units' nameplates under Settings → Gas norms.
+ */
+export const DEFAULT_TYPICAL_SPLIT_CHARGES: TypicalSplitCharge[] = [
+  { btu: 9000, inverter: true, refrigerant: 'R32', grams: 450 },
+  { btu: 12000, inverter: true, refrigerant: 'R32', grams: 560 },
+  { btu: 18000, inverter: true, refrigerant: 'R32', grams: 850 },
+  { btu: 9000, inverter: false, refrigerant: 'R32', grams: 430 },
+  { btu: 12000, inverter: false, refrigerant: 'R32', grams: 530 },
+  { btu: 18000, inverter: false, refrigerant: 'R32', grams: 800 },
+  { btu: 9000, inverter: true, refrigerant: 'R410A', grams: 650 },
+  { btu: 12000, inverter: true, refrigerant: 'R410A', grams: 850 },
+  { btu: 18000, inverter: true, refrigerant: 'R410A', grams: 1250 },
+  { btu: 9000, inverter: false, refrigerant: 'R410A', grams: 700 },
+  { btu: 12000, inverter: false, refrigerant: 'R410A', grams: 900 },
+  { btu: 18000, inverter: false, refrigerant: 'R410A', grams: 1300 },
+  { btu: 9000, inverter: false, refrigerant: 'R22', grams: 700 },
+  { btu: 12000, inverter: false, refrigerant: 'R22', grams: 950 },
+  { btu: 18000, inverter: false, refrigerant: 'R22', grams: 1350 },
+];
+
+/** The typical charge for this unit, if it's a wall split of a listed size. */
+export function typicalSplitCharge(
+  eq: Pick<Equipment, 'category' | 'capacity' | 'capacityUnit' | 'refrigerant' | 'inverter'>,
+  table: TypicalSplitCharge[],
+): TypicalSplitCharge | undefined {
+  if (eq.category !== 'Residential AC' || !eq.refrigerant || eq.refrigerant === 'None') return undefined;
+  const kw = capacityToKw(eq.capacity, eq.capacityUnit);
+  if (!kw) return undefined;
+  const btu = kw * 3412.14;
+  const rows = table.filter((r) => r.refrigerant === eq.refrigerant && Math.abs(r.btu - btu) / r.btu <= 0.12);
+  if (!rows.length) return undefined;
+  // Unknown inverter type: take the larger charge, so budgets aren't too tight.
+  const match = eq.inverter === undefined ? rows : rows.filter((r) => r.inverter === eq.inverter);
+  return (match.length ? match : rows).sort((a, b) => b.grams - a.grams)[0];
+}
+
 export interface ConsumptionNorms {
   /** Usage above expected × (1 + tolerance) raises a warning. */
   tolerancePct: number;
@@ -44,6 +106,7 @@ export interface ConsumptionNorms {
   repeatWindowDays: number;
   refrigerants: Record<Exclude<Refrigerant, 'None'>, RefrigerantNorm>;
   jobs: Record<JobType, JobFactor>;
+  typicalSplitCharges: TypicalSplitCharge[];
 }
 
 export const DEFAULT_NORMS: ConsumptionNorms = {
@@ -75,6 +138,7 @@ export const DEFAULT_NORMS: ConsumptionNorms = {
     'Preventive Maintenance': { chargeFraction: 0.1, pipeCharge: false },
     Other: { chargeFraction: 0.5, pipeCharge: false },
   },
+  typicalSplitCharges: DEFAULT_TYPICAL_SPLIT_CHARGES,
 };
 
 export const JOB_TYPES = Object.keys(DEFAULT_NORMS.jobs) as JobType[];
@@ -97,8 +161,7 @@ export function capacityToKw(capacity: number | undefined, unit: CapacityUnit | 
     case 'TR':
       return capacity * 3.517;
     case 'HP':
-      // Trade convention for split ACs: 1 HP ≈ 9,000 BTU/h.
-      return (capacity * 9000) / 3412.14;
+      return hpToBtu(capacity) / 3412.14;
     case 'L':
       return undefined;
   }
@@ -108,7 +171,7 @@ export interface ChargeEstimate {
   /** Nominal full system charge in grams. */
   nominalG: number;
   /** How the nominal charge was obtained. */
-  basis: 'nameplate' | 'capacity' | 'volume' | 'unknown';
+  basis: 'nameplate' | 'typical' | 'capacity' | 'volume' | 'unknown';
 }
 
 export function estimateNominalCharge(eq: Equipment, norms: ConsumptionNorms = DEFAULT_NORMS): ChargeEstimate {
@@ -120,6 +183,8 @@ export function estimateNominalCharge(eq: Equipment, norms: ConsumptionNorms = D
   if (eq.capacityUnit === 'L' && eq.capacity) {
     return { nominalG: Math.round(ref.gPerLitre * eq.capacity), basis: 'volume' };
   }
+  const typical = typicalSplitCharge(eq, norms.typicalSplitCharges ?? DEFAULT_TYPICAL_SPLIT_CHARGES);
+  if (typical) return { nominalG: typical.grams, basis: 'typical' };
   const kw = capacityToKw(eq.capacity, eq.capacityUnit);
   if (kw) return { nominalG: Math.round(ref.gPerKw * kw), basis: 'capacity' };
   return { nominalG: 0, basis: 'unknown' };

@@ -94,6 +94,47 @@ As you answer:
 - Issue gas and spares against the job's budget. Going over the budget requires a reason.
 - Record the job details, the confirmed cause and the resolution, then close the complaint.
 
+### Visit schedule
+
+**Booking visits**
+- When assigning a technician, book the visit's **date and slot** (morning, afternoon or evening). You can do this on the complaint page or under **Schedule → Open jobs without a visit**.
+- Moving a visit is logged with the reason.
+
+**The Schedule page**
+- Shows the day per technician, filtered by branch.
+- Sends each customer a **WhatsApp reminder**.
+- Can print the day plan for the technicians.
+- Lists **missed visits**: the slot has passed and the job hasn't started.
+
+### Branch requests (Lagos store to branches)
+
+All stock is held in Lagos. A branch that needs parts or gas for a job uses **Request from Lagos** on the complaint, or **Branch requests → New request**.
+1. The **Service Head approves** or rejects the request.
+2. **Lagos dispatches** it with a waybill and carrier. The stock leaves Lagos at this point and is booked to the job, so its gas budget includes it.
+3. The **branch marks it received**.
+
+While parts are on their way, the job shows **Awaiting Parts**. It returns to **In Progress** when everything has arrived.
+
+### Gas cylinders (weigh-out / weigh-in)
+
+**Setting up:** register each cylinder with its tag.
+- Refrigerant, LPG and MAPP cylinders are tracked by **weight**; enter the tare weight.
+- Oxygen and nitrogen cylinders are tracked by **pressure**; enter the water capacity in litres.
+
+**Using them:** on a job, or under **Cylinders**, the store **weighs the cylinder out** to the technician and **weighs it in** on return. The difference is booked to the job as the gas actually used, so budgets and alerts work on real figures.
+
+**The app also flags:**
+- **Gas lost in the store:** a cylinder weighs less at weigh-out than when it was last weighed in. This is recorded as a loss.
+- **Cylinders out more than 48 hours.**
+
+Refills and retiring a cylinder are recorded too.
+
+### Typical nameplate charges
+
+For 1, 1.5 and 2 HP wall splits (9,000, 12,000 and 18,000 BTU/h), the app uses a table of typical factory charges when the nameplate charge isn't known. The table covers R-32, R-410A and R-22, inverter and non-inverter.
+- The complaint form shows the typical figure and can fill it in.
+- The figures are **tentative**. Replace them with the charges on your units' labels under **Settings → Gas norms**.
+
 ### Warranty
 
 The Service Head sets **warranty periods** under **Settings → General**. The most specific rule applies:

@@ -58,7 +58,7 @@ do $$
 declare
   t text;
 begin
-  foreach t in array array['settings', 'technicians', 'items', 'customers', 'complaints', 'movements', 'logs', 'alerts'] loop
+  foreach t in array array['settings', 'technicians', 'items', 'customers', 'complaints', 'movements', 'logs', 'alerts', 'cylinders', 'cylinder_moves', 'requests'] loop
     execute format(
       'create table if not exists public.%I (
          id text primary key,
@@ -111,6 +111,37 @@ drop policy if exists alerts_update on public.alerts;
 create policy alerts_update on public.alerts for update
   using (public.is_staff() and (public.is_head() or coalesce((data ->> 'acknowledged')::boolean, false) = false))
   with check (public.is_staff() and (public.is_head() or coalesce((data ->> 'acknowledged')::boolean, false) = false));
+
+-- Gas cylinders, their weighings and branch requests: any staff member.
+do $$
+declare
+  t text;
+begin
+  foreach t in array array['cylinders', 'cylinder_moves', 'requests'] loop
+    execute format('drop policy if exists %I on public.%I', t || '_insert', t);
+    execute format('create policy %I on public.%I for insert with check (public.is_staff())', t || '_insert', t);
+    execute format('drop policy if exists %I on public.%I', t || '_update', t);
+    execute format('create policy %I on public.%I for update using (public.is_staff()) with check (public.is_staff())', t || '_update', t);
+  end loop;
+end;
+$$;
+
+-- Only the Service Head approves or rejects a branch request.
+create or replace function public.guard_request_decision() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if coalesce(new.data ->> 'status', '') in ('Approved', 'Rejected')
+     and coalesce(new.data ->> 'status', '') is distinct from (case when tg_op = 'UPDATE' then old.data ->> 'status' end)
+     and auth.uid() is not null and not public.is_head() then
+    raise exception 'Only the Service Head can approve or reject requests' using errcode = '42501';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists requests_decision on public.requests;
+create trigger requests_decision before insert or update on public.requests
+  for each row execute function public.guard_request_decision();
 
 -- Settings, technicians and the item catalogue: Service Head only.
 do $$
@@ -399,7 +430,7 @@ begin
   if not public.is_head() then
     raise exception 'Only the Service Head can remove demo data' using errcode = '42501';
   end if;
-  foreach t in array array['alerts', 'logs', 'movements', 'complaints', 'customers', 'technicians'] loop
+  foreach t in array array['alerts', 'logs', 'movements', 'cylinder_moves', 'cylinders', 'requests', 'complaints', 'customers', 'technicians'] loop
     execute format('delete from public.%I where id like %L', t, 'demo-%');
     get diagnostics n = row_count;
     total := total + n;
@@ -437,7 +468,7 @@ declare
   t text;
 begin
   if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
-    foreach t in array array['settings', 'technicians', 'items', 'customers', 'complaints', 'movements', 'logs', 'alerts', 'profiles'] loop
+    foreach t in array array['settings', 'technicians', 'items', 'customers', 'complaints', 'movements', 'logs', 'alerts', 'profiles', 'cylinders', 'cylinder_moves', 'requests'] loop
       if not exists (
         select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t
       ) then

@@ -21,10 +21,14 @@ class FakeServer {
     this.clock += 1000;
     return new Date(this.clock).toISOString();
   }
+  /** Tables the server doesn't have (schema not updated yet). */
+  absent = new Set<string>();
+
   remote(): Remote {
     return {
       upsert: async (table, rows, appendOnly) => {
         if (!this.online) throw new RemoteError('Failed to fetch', 'network');
+        if (this.absent.has(table)) throw new RemoteError(`relation "${table}" does not exist`, 'missing');
         const t = this.table(table);
         const out: RemoteRow[] = [];
         for (const r of rows) {
@@ -51,6 +55,7 @@ class FakeServer {
       },
       pull: async (table, since, limit) => {
         if (!this.online) throw new RemoteError('Failed to fetch', 'network');
+        if (this.absent.has(table)) throw new RemoteError(`relation "${table}" does not exist`, 'missing');
         return [...this.table(table).entries()]
           .map(([id, r]) => ({ id, ...r }))
           .filter((r) => !since || r.updated_at >= since)
@@ -222,5 +227,23 @@ describe('demo data across devices', () => {
     expect(await hasDemoData(b)).toBe(false);
     expect((await b.complaints.toArray()).map((c) => c.id)).toEqual([real]);
     expect((await b.items.get(R32))!.stock).toBe(0);
+  });
+});
+
+describe('server not yet updated', () => {
+  it('keeps syncing other tables and asks for the database update', async () => {
+    server.absent.add('cylinders');
+    await a.cylinders.add({ id: 'c1', tag: 'R32-01', itemId: R32, measure: 'weight', tareKg: 7, status: 'In store', lastReading: 10, lastReadingAt: '2026-09-28T00:00:00Z', createdAt: '2026-09-28T00:00:00Z' });
+    const id = await createComplaint(a, settingsA, newComplaint());
+    await syncA.syncNow();
+    expect(syncA.state.status).toBe('error');
+    expect(syncA.state.message).toMatch(/Database update needed/);
+    await syncB.syncNow();
+    expect(await b.complaints.get(id)).toBeTruthy(); // complaints still shared
+    server.absent.clear();
+    await syncA.syncNow();
+    expect(syncA.state.status).toBe('idle');
+    await syncB.syncNow();
+    expect(await b.cylinders.get('c1')).toBeTruthy();
   });
 });
