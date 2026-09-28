@@ -24,7 +24,15 @@ Open the app in Chrome or Edge and use **Install app** (or **Add to Home screen*
 
 ### Hosting
 
-Pushes to `main` are tested, built and published to GitHub Pages by `.github/workflows/deploy.yml`. To turn it on, go to **Settings → Pages → Source: GitHub Actions**. The build uses relative paths, so any static host works: copy `dist/` onto it.
+The app is a set of static files, so any static host works. Ready-made configuration is included for:
+
+- **Vercel:** *Add New → Project*, then import this repository. `vercel.json` sets the build command and caching.
+- **Netlify:** *Add new site → Import an existing project*, then pick this repository. `netlify.toml` sets the build command and caching.
+- **GitHub Pages:** `.github/workflows/deploy.yml` publishes on every push to `main`. To turn it on, go to **Settings → Pages → Source: GitHub Actions**.
+
+Vercel and Netlify also build a preview link for every branch and pull request.
+
+The service worker (`sw.js`) is served with `no-cache`, so installed copies pick up new versions on their next visit.
 
 ## Where the data lives
 
