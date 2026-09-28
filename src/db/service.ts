@@ -12,7 +12,7 @@ import {
   type PriorCharge,
 } from '../lib/consumption';
 import type { StockRow } from '../lib/csv';
-import { newId, runtime, type ServiceDB } from './db';
+import { newId, runtime, SYNCED_TABLES, type ServiceDB } from './db';
 import type { AppSettings } from './settings';
 import { GAS_TYPES } from './types';
 import type {
@@ -32,6 +32,21 @@ const nowIso = () => runtime.now().toISOString();
 export const TEMP_TICKET = 'TMP-';
 
 export const isTempTicket = (t: string) => t.startsWith(TEMP_TICKET);
+
+/** Unguessable token for the customer's status and feedback links. */
+export function newPublicToken() {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/** Gives an older complaint a link token if it doesn't have one. */
+export async function ensurePublicToken(db: ServiceDB, complaintId: string): Promise<string> {
+  const c = await getComplaint(db, complaintId);
+  if (c.publicToken) return c.publicToken;
+  const token = newPublicToken();
+  await db.complaints.update(complaintId, { publicToken: token });
+  return token;
+}
 
 export async function nextTicketNo(db: ServiceDB, prefix: string, at = runtime.now()): Promise<string> {
   // With a shared server, numbers are assigned centrally so two PCs never
@@ -82,6 +97,7 @@ export async function createComplaint(db: ServiceDB, settings: AppSettings, inpu
       dueAt: due.toISOString(),
       loggedBy: settings.currentUser,
       loggedByEmail: settings.currentUserEmail,
+      publicToken: newPublicToken(),
     };
     const id = complaint.id;
     await db.complaints.add(complaint);
@@ -206,10 +222,27 @@ export async function updateJobDetails(
       | 'serviceCharge'
       | 'equipment'
       | 'branch'
+      | 'leakPoints'
+      | 'supplyVoltage'
+      | 'stabiliser'
+      | 'powerSource'
+      | 'feedbackComment'
     >
   >,
 ) {
-  await db.complaints.update(complaintId, { ...patch, updatedAt: nowIso() });
+  const full: Partial<Complaint> = { ...patch, updatedAt: nowIso() };
+  if ('customerFeedback' in patch) {
+    const c = await getComplaint(db, complaintId);
+    // A rating the customer gave through their link stays as they gave it.
+    if (c.feedbackVia === 'customer') {
+      delete full.customerFeedback;
+      delete full.feedbackComment;
+    } else if (patch.customerFeedback !== c.customerFeedback) {
+      full.feedbackAt = patch.customerFeedback ? nowIso() : undefined;
+      full.feedbackVia = patch.customerFeedback ? 'helpdesk' : undefined;
+    }
+  }
+  await db.complaints.update(complaintId, full);
   await reevaluate(db, settings, complaintId);
 }
 
@@ -599,7 +632,7 @@ export async function confirmedCauseCounts(db: ServiceDB): Promise<Record<string
 
 // ------------------------------------------------------------------ backup
 
-const TABLES = ['customers', 'technicians', 'complaints', 'logs', 'items', 'movements', 'alerts', 'settings'] as const;
+const TABLES = SYNCED_TABLES;
 
 const stripMeta = (row: Record<string, unknown>) =>
   Object.fromEntries(Object.entries(row).filter(([k]) => !k.startsWith('_')));
@@ -607,13 +640,13 @@ const stripMeta = (row: Record<string, unknown>) =>
 export async function exportAll(db: ServiceDB) {
   const data: Record<string, unknown[]> = {};
   for (const t of TABLES) data[t] = (await db.table(t).toArray()).map(stripMeta);
-  return { app: 'somotex-service-portal', version: 2, exportedAt: nowIso(), data };
+  return { app: 'somotex-service-portal', version: 3, exportedAt: nowIso(), data };
 }
 
 /** Replaces all data on this device with a backup (single-device mode only). */
 export async function importAll(db: ServiceDB, backup: { app?: string; version?: number; data?: Record<string, unknown[]> }) {
   if (backup.app !== 'somotex-service-portal' || !backup.data) throw new Error('This file is not a service portal backup');
-  if (backup.version !== 2) throw new Error('This backup is from an older version of the app and can’t be restored here');
+  if (backup.version !== 2 && backup.version !== 3) throw new Error('This backup is from an older version of the app and can’t be restored here');
   if (runtime.cloud) throw new Error('Restoring a backup is only available in single-device mode');
   await db.transaction('rw', TABLES.map((t) => db.table(t)), async () => {
     for (const t of TABLES) {

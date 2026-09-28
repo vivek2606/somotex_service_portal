@@ -77,6 +77,7 @@ const SERVER_OWNED: Partial<Record<SyncedTable, string[]>> = {
   complaints: ['ticketNo', 'loggedBy', 'loggedByEmail', 'closedBy', 'closedByEmail'],
   logs: ['by', 'byEmail'],
   movements: ['by', 'byEmail'],
+  toolMoves: ['by', 'byEmail'],
 };
 
 export class SyncEngine {

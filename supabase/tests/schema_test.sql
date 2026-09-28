@@ -201,6 +201,65 @@ do $$ begin
   assert (select data ->> 'status' from public.requests where id = 'rq1') = 'Dispatched', 'request moved on by staff after approval';
 end $$;
 
+-- 14. Tools and part returns: staff write; tool history is append-only and stamped.
+set role authenticated;
+select pg_temp.act_as(:'exec1');
+insert into public.tools (id, data) values ('tl1', '{"tag": "VP-01", "kind": "Vacuum pump", "status": "In store"}');
+update public.tools set data = data || '{"status": "Issued"}' where id = 'tl1';
+insert into public.tool_moves (id, data) values ('tm1', '{"toolId": "tl1", "kind": "Issued", "by": "Someone Else"}');
+update public.tool_moves set data = data || '{"kind": "Returned"}' where id = 'tm1';
+insert into public.part_returns (id, data) values ('pr1', '{"ref": "RTN-1", "stage": "At site", "partName": "PCB"}');
+update public.part_returns set data = data || '{"stage": "Received in Lagos"}' where id = 'pr1';
+reset role;
+do $$ begin
+  assert (select data ->> 'byEmail' from public.tool_moves where id = 'tm1') = 'exec1@somotex.com', 'tool move stamped with the signed-in account';
+  assert (select data ->> 'kind' from public.tool_moves where id = 'tm1') = 'Issued', 'tool history cannot be edited';
+  assert (select data ->> 'stage' from public.part_returns where id = 'pr1') = 'Received in Lagos', 'return updated';
+end $$;
+
+-- 15. Customer links: status and rating by token, without signing in.
+insert into public.technicians (id, data) values ('tech-1', '{"name": "Emeka Nwankwo"}');
+set role authenticated;
+select pg_temp.act_as(:'exec1');
+insert into public.complaints (id, data) values ('cx1', jsonb_build_object(
+  'ticketNo', 'TMP-X1', 'status', 'In Progress', 'createdAt', '2026-09-20T09:00:00Z', 'publicToken', '0123456789abcdef0123456789abcdef',
+  'technicianId', 'tech-1', 'complaintType', 'Not cooling', 'equipment', jsonb_build_object('brand', 'Midea', 'category', 'Residential AC'),
+  'description', 'internal note', 'customerId', 'real-c1'));
+set role anon;
+select pg_temp.act_as(null);
+do $$
+declare t jsonb := public.public_ticket('0123456789abcdef0123456789abcdef');
+begin
+  assert t ->> 'status' = 'In Progress', 'status visible';
+  assert t ->> 'technician' = 'Emeka', 'technician first name only';
+  assert t ->> 'product' = 'Midea Residential AC', 'product';
+  assert t ->> 'ticketNo' like 'SMX-%', 'real ticket number';
+  assert not (t ? 'description') and not (t ? 'customerId'), 'nothing internal is shown';
+  assert public.public_ticket('ffffffffffffffffffffffffffffffff') is null, 'unknown token';
+  assert public.public_ticket('x'' or 1=1 --') is null, 'malformed token';
+end $$;
+select pg_temp.expect_error($$select public.submit_feedback('0123456789abcdef0123456789abcdef', 5, 'Great')$$, '%once the job is complete%');
+reset role;
+update public.complaints set data = data || '{"status": "Closed"}' where id = 'cx1';
+set role anon;
+select pg_temp.expect_error($$select public.submit_feedback('0123456789abcdef0123456789abcdef', 9, '')$$, '%1 to 5%');
+select public.submit_feedback('0123456789abcdef0123456789abcdef', 4, '  Technician was polite  ');
+select pg_temp.expect_error($$select public.submit_feedback('0123456789abcdef0123456789abcdef', 1, 'again')$$, '%already been recorded%');
+reset role;
+-- A device that still has the old copy can't overwrite the customer's rating.
+set role authenticated;
+select pg_temp.act_as(:'exec1');
+update public.complaints set data = (data - 'feedbackVia' - 'feedbackComment') || '{"customerFeedback": 1}' where id = 'cx1';
+reset role;
+do $$
+declare d jsonb := (select data from public.complaints where id = 'cx1');
+begin
+  assert (d ->> 'customerFeedback')::int = 4, 'customer rating kept';
+  assert d ->> 'feedbackVia' = 'customer', 'source kept';
+  assert d ->> 'feedbackComment' = 'Technician was polite', 'comment trimmed and kept';
+  assert exists (select 1 from public.logs where data ->> 'complaintId' = 'cx1' and data ->> 'by' = 'Customer'), 'timeline entry added';
+end $$;
+
 -- 13. Anonymous visitors see nothing but the staff count.
 set role anon;
 select pg_temp.act_as(null);
@@ -210,6 +269,8 @@ end $$;
 select pg_temp.expect_error($$select count(*) from public.complaints$$, '%permission denied%');
 select pg_temp.expect_error($$select count(*) from public.profiles$$, '%permission denied%');
 select pg_temp.expect_error($$insert into public.customers (id, data) values ('x', '{}')$$, '%permission denied%');
+select pg_temp.expect_error($$select count(*) from public.tools$$, '%permission denied%');
+select pg_temp.expect_error($$select count(*) from public.part_returns$$, '%permission denied%');
 reset role;
 
 \echo 'All schema tests passed'

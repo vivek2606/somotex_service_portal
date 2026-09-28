@@ -19,7 +19,11 @@ function toRemoteError(e: PgError): RemoteError {
 }
 
 /** Server table names that differ from the device's. */
-const SERVER_NAME: Partial<Record<SyncedTable, string>> = { cylinderMoves: 'cylinder_moves' };
+const SERVER_NAME: Partial<Record<SyncedTable, string>> = {
+  cylinderMoves: 'cylinder_moves',
+  toolMoves: 'tool_moves',
+  partReturns: 'part_returns',
+};
 const serverName = (t: SyncedTable) => SERVER_NAME[t] ?? t;
 
 export function supabaseRemote(sb: SupabaseClient): Remote {

@@ -155,8 +155,40 @@ export interface Complaint {
   rootCause?: string;
   resolution?: string;
   customerFeedback?: 1 | 2 | 3 | 4 | 5;
+  /** Comment left with the rating, and where the rating came from. */
+  feedbackComment?: string;
+  feedbackAt?: string;
+  feedbackVia?: 'customer' | 'helpdesk';
   serviceCharge?: number;
+  /** Where leaks were found and fixed (for leak hotspot analysis). */
+  leakPoints?: LeakPoint[];
+  /** Supply voltage measured at the unit (V). */
+  supplyVoltage?: number;
+  /** Whether a voltage stabiliser / AVS protects the unit. */
+  stabiliser?: 'Yes' | 'No';
+  powerSource?: PowerSource;
+  /** Secret for the customer's status and feedback links. */
+  publicToken?: string;
+  /** When the Service Head was alerted, by reason. */
+  escalatedOverdueAt?: string;
+  escalatedUrgentAt?: string;
 }
+
+export const LEAK_POINTS = [
+  'Flare nut / union',
+  'Evaporator coil',
+  'Condenser coil',
+  'Service valve',
+  'Brazed joint',
+  'Capillary / expansion valve',
+  'Interconnecting pipe',
+  'Compressor / accumulator',
+  'Other',
+] as const;
+export type LeakPoint = (typeof LEAK_POINTS)[number];
+
+export const POWER_SOURCES = ['Grid (PHCN / DisCo)', 'Generator', 'Inverter / solar', 'Mixed'] as const;
+export type PowerSource = (typeof POWER_SOURCES)[number];
 
 export type LogKind = 'status' | 'note' | 'assignment' | 'material' | 'alert' | 'customer';
 
@@ -331,6 +363,92 @@ export interface BranchRequest {
   receivedAt?: string;
   receivedBy?: string;
   receivedNote?: string;
+}
+
+// ------------------------------------------------------------------ tools
+
+export const TOOL_KINDS = [
+  'Vacuum pump',
+  'Manifold gauge set',
+  'Charging scale',
+  'Recovery machine',
+  'Brazing kit',
+  'Leak detector',
+  'Flaring / swaging kit',
+  'Multimeter / clamp meter',
+  'Other',
+] as const;
+export type ToolKind = (typeof TOOL_KINDS)[number];
+
+export type ToolStatus = 'In store' | 'Issued' | 'Under repair' | 'Retired';
+
+export interface Tool {
+  id: string;
+  /** Tag painted or engraved on the tool, e.g. VP-03. */
+  tag: string;
+  kind: ToolKind;
+  description?: string;
+  serialNo?: string;
+  branch: string;
+  status: ToolStatus;
+  /** Technician holding it, while issued. */
+  technicianId?: string;
+  issuedAt?: string;
+  /** Months between calibrations; unset = no calibration needed. */
+  calibrationMonths?: number;
+  lastCalibratedAt?: string;
+  /** Next calibration due (YYYY-MM-DD). */
+  calibrationDue?: string;
+  notes?: string;
+  createdAt: string;
+}
+
+export type ToolMoveKind = 'Registered' | 'Issued' | 'Returned' | 'Calibrated' | 'Sent for repair' | 'Repaired' | 'Retired';
+
+export interface ToolMove {
+  id: string;
+  toolId: string;
+  kind: ToolMoveKind;
+  at: string;
+  technicianId?: string;
+  complaintId?: string;
+  note?: string;
+  by: string;
+  byEmail?: string;
+}
+
+// -------------------------------------------------- defective part returns
+
+export const RETURN_STAGES = [
+  'At site',
+  'With technician',
+  'At branch',
+  'In transit to Lagos',
+  'Received in Lagos',
+  'Sent to principal',
+  'Scrapped',
+] as const;
+export type ReturnStage = (typeof RETURN_STAGES)[number];
+
+export interface PartReturn {
+  id: string;
+  /** Short reference, e.g. RTN-4C2E. */
+  ref: string;
+  complaintId: string;
+  itemId?: string;
+  partName: string;
+  /** Serial number of the defective part, if it has one. */
+  partSerial?: string;
+  brand: string;
+  branch?: string;
+  stage: ReturnStage;
+  waybill?: string;
+  carrier?: string;
+  /** Principal's claim or RMA number. */
+  claimRef?: string;
+  history: { stage: ReturnStage; at: string; by: string; note?: string }[];
+  createdAt: string;
+  updatedAt: string;
 }
 
 export type AlertSeverity = 'info' | 'warning' | 'critical';

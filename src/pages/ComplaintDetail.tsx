@@ -15,13 +15,16 @@ import {
   SeverityBadge,
   StatusBadge,
   useAction,
+  useToast,
 } from '../components/ui';
-import { db } from '../db/db';
+import { db, runtime } from '../db/db';
 import {
   acknowledgeAlert,
   assignTechnician,
   confirmedCauseCounts,
+  ensurePublicToken,
   isOpen,
+  isTempTicket,
   issueToComplaint,
   logCustomerContact,
   addLog,
@@ -30,6 +33,10 @@ import {
   setStatus,
   updateJobDetails,
 } from '../db/service';
+import { LEAK_POINTS, POWER_SOURCES, type LeakPoint, type PowerSource } from '../db/types';
+import { ComplaintReturnsCard } from '../components/PartReturns';
+import { feedbackLink, trackLink } from '../lib/links';
+import { badVoltage, VOLTAGE_BAND } from '../lib/insights';
 import { BRAZING_METHODS, CALL_OUTCOMES, GAS_TYPES, VISIT_SLOTS, type VisitSlot, type BrazingMethod, type CallOutcome, type Complaint, type ComplaintStatus, type JobType } from '../db/types';
 import { expectedRefrigerant, issuePlan, JOB_TYPES, usesRefrigerant } from '../lib/consumption';
 import { causesFor, diagnose, questionnaire } from '../lib/diagnosis';
@@ -234,6 +241,7 @@ function Detail({ c }: { c: Complaint }) {
 
           <JobCard c={c} />
           <MaterialsCard c={c} usage={usage} items={items} />
+          <ComplaintReturnsCard c={c} usage={usage} />
 
           {!!alerts?.length && (
             <div className="card">
@@ -367,6 +375,10 @@ function JobCard({ c }: { c: Complaint }) {
           : undefined;
   const num = (v: string) => (v === '' ? undefined : Number(v));
   const exp = hasGas ? expectedRefrigerant(c.equipment, f.jobType, f.pipeLengthM, settings.norms) : undefined;
+  // Everything electrical except gas cookers can be damaged by bad power.
+  const hasPower = c.equipment.category !== 'Gas Cooker';
+  const needsLeakPoint = (f.jobType === 'Leak Repair + Full Recharge' || f.jobType === 'Gas Top-up') && !f.leakPoints?.length;
+  const customerRated = c.feedbackVia === 'customer';
 
   const save = (e: FormEvent) => {
     e.preventDefault();
@@ -423,6 +435,57 @@ function JobCard({ c }: { c: Complaint }) {
             </label>
           </>
         )}
+        {hasGas && (
+          <div className="field span-all">
+            Leak found at
+            <div className="row">
+              {LEAK_POINTS.map((p) => (
+                <label key={p} className="field inline small">
+                  <input
+                    type="checkbox"
+                    checked={f.leakPoints?.includes(p) ?? false}
+                    onChange={(e) => {
+                      const next = e.target.checked ? [...(f.leakPoints ?? []), p] : (f.leakPoints ?? []).filter((x) => x !== p);
+                      setF({ ...f, leakPoints: next.length ? (next as LeakPoint[]) : undefined });
+                    }}
+                  />
+                  {p}
+                </label>
+              ))}
+            </div>
+            {needsLeakPoint && <span className="hint" style={{ color: 'var(--warn)' }}>Record where the leak was, so repeat leak points show up in Insights.</span>}
+          </div>
+        )}
+        {hasPower && (
+          <>
+            <label className="field">
+              Supply voltage at the unit (V)
+              <input type="number" inputMode="numeric" min="0" max="500" value={f.supplyVoltage ?? ''} onChange={(e) => setF({ ...f, supplyVoltage: num(e.target.value) })} />
+              {badVoltage(f.supplyVoltage) && (
+                <span className="hint" style={{ color: 'var(--bad)' }}>
+                  Outside {VOLTAGE_BAND.low}–{VOLTAGE_BAND.high} V: advise a stabiliser.
+                </span>
+              )}
+            </label>
+            <label className="field">
+              Stabiliser / AVS fitted
+              <select value={f.stabiliser ?? ''} onChange={(e) => setF({ ...f, stabiliser: (e.target.value || undefined) as 'Yes' | 'No' | undefined })}>
+                <option value="">Not checked</option>
+                <option>Yes</option>
+                <option>No</option>
+              </select>
+            </label>
+            <label className="field">
+              Power source
+              <select value={f.powerSource ?? ''} onChange={(e) => setF({ ...f, powerSource: (e.target.value || undefined) as PowerSource | undefined })}>
+                <option value="">Not checked</option>
+                {POWER_SOURCES.map((p) => (
+                  <option key={p}>{p}</option>
+                ))}
+              </select>
+            </label>
+          </>
+        )}
         <label className="field span-all">
           Confirmed cause
           <select value={f.confirmedCauseId ?? ''} onChange={(e) => setF({ ...f, confirmedCauseId: e.target.value || undefined })}>
@@ -449,6 +512,15 @@ function JobCard({ c }: { c: Complaint }) {
           <input type="number" inputMode="numeric" min="0" value={f.serviceCharge ?? ''} onChange={(e) => setF({ ...f, serviceCharge: num(e.target.value) })} />
           {chargeHint && <span className="hint">{chargeHint}</span>}
         </label>
+        {customerRated ? (
+          <div className="field">
+            Customer feedback
+            <div>
+              {'★'.repeat(c.customerFeedback ?? 0)} ({c.customerFeedback}) <span className="badge ok">from the customer</span>
+            </div>
+            {c.feedbackComment && <span className="hint">“{c.feedbackComment}”</span>}
+          </div>
+        ) : (
         <label className="field">
           Customer feedback
           <select
@@ -462,7 +534,9 @@ function JobCard({ c }: { c: Complaint }) {
               </option>
             ))}
           </select>
+          <span className="hint">Or send the customer the rating link from “Send customer update”.</span>
         </label>
+        )}
       </div>
       {hasGas && (f.brazedJoints ?? 0) > 0 && !f.nitrogenPurged && (
         <p className="small" style={{ marginTop: 10, color: 'var(--warn)' }}>
@@ -498,6 +572,10 @@ function pickJob(c: Complaint) {
     resolution: c.resolution,
     serviceCharge: c.serviceCharge,
     customerFeedback: c.customerFeedback,
+    leakPoints: c.leakPoints,
+    supplyVoltage: c.supplyVoltage,
+    stabiliser: c.stabiliser,
+    powerSource: c.powerSource,
   };
 }
 
@@ -735,12 +813,27 @@ function NoteCard({ complaintId }: { complaintId: string }) {
 /** Pre-written customer messages sent from the helpdesk phone via WhatsApp or SMS. */
 function CustomerUpdateCard({ c, customerName, phone, techName }: { c: Complaint; customerName: string; phone: string; techName?: string }) {
   const settings = useSettings();
+  const toast = useToast();
+  // Customer links need the shared server; older complaints get their link token on first view.
+  const links = runtime.cloud && !isTempTicket(c.ticketNo);
+  useEffect(() => {
+    if (links && !c.publicToken) void ensurePublicToken(db, c.id);
+  }, [links, c.id, c.publicToken]);
+  const track = links && c.publicToken ? trackLink(c.publicToken) : undefined;
+  const rate = links && c.publicToken ? feedbackLink(c.publicToken) : undefined;
   const templates: Record<string, string> = {
-    Registered: `Dear ${customerName}, your service request ${c.ticketNo} for your ${c.equipment.brand} ${c.equipment.category} has been registered with ${settings.companyName}. We will contact you to arrange a visit.`,
-    'Technician assigned': `Dear ${customerName}, technician ${techName ?? ''} has been assigned to your request ${c.ticketNo}${c.preferredVisit ? ` and will visit ${c.preferredVisit}` : ''}. Thank you for choosing ${settings.companyName}.`,
-    'Awaiting parts': `Dear ${customerName}, the parts for your request ${c.ticketNo} have been ordered. We will update you as soon as they arrive.`,
-    'Job completed': `Dear ${customerName}, the work on your request ${c.ticketNo} is complete. Please reply with a rating from 1 (poor) to 5 (excellent) for our service. Thank you, ${settings.companyName}.`,
+    Registered: `Dear ${customerName}, your service request ${c.ticketNo} for your ${c.equipment.brand} ${c.equipment.category} has been registered with ${settings.companyName}. We will contact you to arrange a visit.${track ? ` Follow its progress here: ${track}` : ''}`,
+    'Technician assigned': `Dear ${customerName}, technician ${techName ?? ''} has been assigned to your request ${c.ticketNo}${c.preferredVisit ? ` and will visit ${c.preferredVisit}` : ''}. Thank you for choosing ${settings.companyName}.${track ? ` Progress: ${track}` : ''}`,
+    'Awaiting parts': `Dear ${customerName}, the parts for your request ${c.ticketNo} have been ordered. We will update you as soon as they arrive.${track ? ` Progress: ${track}` : ''}`,
+    'Job completed': rate
+      ? `Dear ${customerName}, the work on your request ${c.ticketNo} is complete. Please tell us how we did (it takes 10 seconds): ${rate} Thank you, ${settings.companyName}.`
+      : `Dear ${customerName}, the work on your request ${c.ticketNo} is complete. Please reply with a rating from 1 (poor) to 5 (excellent) for our service. Thank you, ${settings.companyName}.`,
   };
+  const copy = (text: string, what: string) =>
+    void navigator.clipboard?.writeText(text).then(
+      () => toast(`${what} copied`),
+      () => toast('Copy failed: select the link and copy it by hand'),
+    );
   const [key, setKey] = useState(Object.keys(templates)[0]);
   const [text, setText] = useState('');
   const message = text || templates[key];
@@ -772,6 +865,19 @@ function CustomerUpdateCard({ c, customerName, phone, techName }: { c: Complaint
           SMS
         </a>
       </div>
+      {track && rate && (
+        <p className="small muted" style={{ marginTop: 8, marginBottom: 0 }}>
+          Customer links:{' '}
+          <button className="link small" onClick={() => copy(track, 'Tracking link')}>
+            copy tracking link
+          </button>{' '}
+          ·{' '}
+          <button className="link small" onClick={() => copy(rate, 'Rating link')}>
+            copy rating link
+          </button>
+          {c.feedbackVia === 'customer' && <> · customer has rated {c.customerFeedback}★</>}
+        </p>
+      )}
     </div>
   );
 }

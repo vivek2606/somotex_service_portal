@@ -13,6 +13,9 @@ import { seedIfEmpty } from './seed';
 import { contentAt, refillCylinder, registerCylinder, weighIn, weighOut } from './cylinders';
 import { createRequest, decideRequest, dispatchRequest, receiveRequest } from './requests';
 import { localDay, scheduleVisit } from './visits';
+import { createReturn, advanceReturn } from './returns';
+import { calibrateTool, issueTool, registerTool, sendToolForRepair } from './tools';
+import { DEFAULT_SEASON } from '../lib/insights';
 import {
   acknowledgeAlert,
   assignTechnician,
@@ -23,6 +26,7 @@ import {
   logCustomerContact,
   receiveStock,
   recomputeStock,
+  recordMovement,
   setStatus,
   updateJobDetails,
 } from './service';
@@ -36,11 +40,13 @@ import type {
   Equipment,
   InventoryItem,
   JobType,
+  LeakPoint,
+  PowerSource,
   Priority,
   ProductCategory,
   Refrigerant,
 } from './types';
-import { VISIT_SLOTS } from './types';
+import { VISIT_SLOTS, type ToolKind } from './types';
 
 /** Small deterministic random generator so the demo looks the same each time. */
 function rng(seed: number) {
@@ -369,6 +375,40 @@ const RECEIPTS: Record<string, [number, number]> = {
   'SP-THERMO-FR': [6, 0], 'SP-WM-DRAIN': [4, 2], 'SP-MW-MAG': [2, 1], 'SP-GC-IGN': [5, 0],
 };
 
+/** Where leaks are found, most common first. */
+const LEAK_WEIGHTS: [LeakPoint, number][] = [
+  ['Flare nut / union', 9],
+  ['Evaporator coil', 4],
+  ['Service valve', 3],
+  ['Brazed joint', 3],
+  ['Condenser coil', 2],
+  ['Interconnecting pipe', 2],
+  ['Capillary / expansion valve', 1],
+];
+
+/** Typical supply voltage by city (V): the north and Onitsha see more low voltage. */
+const CITY_VOLTAGE: Record<string, number> = { Kano: 196, Onitsha: 204, 'Port Harcourt': 214, Ibadan: 218, Abuja: 224, Lagos: 222 };
+
+/** Refrigerant sent to the branches each month (kg, before the season factor). */
+const MONTHLY_SUPPLY: Record<string, number> = { 'REF-R32': 14, 'REF-R410A': 18, 'REF-R22': 6, 'REF-R134A': 2, 'REF-R600A': 1 };
+
+/** Service tools per branch, with months since last calibration (undefined = none needed). */
+const TOOLS: { prefix: string; kind: ToolKind; description: string; cal?: number; lagosOnly?: boolean }[] = [
+  { prefix: 'VP', kind: 'Vacuum pump', description: 'Value VE215N' },
+  { prefix: 'MG', kind: 'Manifold gauge set', description: 'Digital manifold', cal: 5 },
+  { prefix: 'SC', kind: 'Charging scale', description: 'Electronic 100 kg', cal: 7 },
+  { prefix: 'RM', kind: 'Recovery machine', description: 'Oil-less recovery unit', lagosOnly: true },
+  { prefix: 'BK', kind: 'Brazing kit', description: 'Oxy-acetylene set', lagosOnly: true },
+  { prefix: 'LD', kind: 'Leak detector', description: 'Electronic leak detector', cal: 11.8, lagosOnly: true },
+];
+
+const CUSTOMER_COMMENTS: Record<number, string[]> = {
+  5: ['Very professional, the technician explained everything.', 'Fast and neat work. Thank you!', 'Excellent service, AC is cooling well now.'],
+  4: ['Good job, but he came later than agreed.', 'Working fine now.'],
+  3: ['Fixed, but it took three visits.'],
+  2: ['Too long to get the part from Lagos.'],
+};
+
 export async function hasDemoData(db: ServiceDB) {
   return (await db.complaints.where('id').startsWith(DEMO_PREFIX).count()) > 0;
 }
@@ -377,6 +417,14 @@ export async function loadDemoData(db: ServiceDB, settings: AppSettings, days = 
   if (await hasDemoData(db)) throw new Error('Demo data is already loaded. Remove it first to load it again.');
   await seedIfEmpty(db);
   const r = rng(20260928);
+  // Separate sequence for the newer details, so the rest of the demo stays the same.
+  const r2 = rng(20260929);
+  const pick2 = <T,>(a: readonly T[]) => a[Math.floor(r2() * a.length)];
+  const weighted2 = <T,>(list: [T, number][]) => {
+    let x = r2() * list.reduce((t, [, w]) => t + w, 0);
+    for (const [v, w] of list) if ((x -= w) < 0) return v;
+    return list[0][0];
+  };
   const pick = <T,>(a: readonly T[]) => a[Math.floor(r() * a.length)];
   const between = (lo: number, hi: number) => lo + r() * (hi - lo);
   const whole = (lo: number, hi: number) => Math.round(between(lo, hi));
@@ -405,6 +453,76 @@ export async function loadDemoData(db: ServiceDB, settings: AppSettings, days = 
       const branch = branchOf(t.branch);
       await db.technicians.add({ id, name: t.name, phone: t.phone, skills: t.skills, active: true, branch });
       techs.push({ id, branch, ac: t.ac, gas: t.gas });
+    }
+
+    // Service tools: a set per branch, more in Lagos. One scale is overdue for
+    // calibration, a detector is nearly due, one pump is away for repair.
+    at(start - 30 * DAY);
+    const toolIds: { id: string; branch: string; kind: ToolKind; tag: string }[] = [];
+    for (const [bi, branch] of branches.entries()) {
+      for (const t of TOOLS) {
+        if (t.lagosOnly && bi > 0) continue;
+        const copies = bi === 0 && (t.kind === 'Vacuum pump' || t.kind === 'Charging scale') ? 2 : 1;
+        for (let k = 0; k < copies; k++) {
+          const tag = `${t.prefix}-${String(toolIds.filter((x) => x.kind === t.kind).length + 1).padStart(2, '0')}`;
+          // The first Lagos charging scale was last checked over a year ago.
+          const monthsAgo = t.kind === 'Charging scale' && bi === 0 && k === 0 ? 14 : t.cal;
+          const last = monthsAgo === undefined ? undefined : new Date(Date.now() - monthsAgo * 30.44 * DAY).toISOString().slice(0, 10);
+          const id = await registerTool(db, settings, {
+            tag,
+            kind: t.kind,
+            description: t.description,
+            branch,
+            calibrationMonths: t.cal === undefined ? undefined : 12,
+            lastCalibratedAt: last,
+          });
+          toolIds.push({ id, branch, kind: t.kind, tag });
+        }
+      }
+    }
+    const branchTech = (branch: string) => techs.find((t) => t.branch === branch && t.ac);
+    for (const t of toolIds) {
+      const tech = branchTech(t.branch);
+      if (!tech) continue;
+      if (t.kind === 'Vacuum pump' && t.tag === 'VP-02') {
+        at(Date.now() - 12 * DAY);
+        await sendToolForRepair(db, settings, t.id, 'Oil contaminated, not pulling a deep vacuum');
+      } else if (t.kind === 'Vacuum pump' || (t.kind === 'Manifold gauge set' && t.branch !== branches[0])) {
+        // Pumps and gauges live with the branch technicians; one has been out for over a week.
+        at(Date.now() - (t.branch === branches[1] ? 10 : r2() * 4 + 0.5) * DAY);
+        await issueTool(db, settings, t.id, tech.id);
+      } else if (t.kind === 'Charging scale' && t.tag === 'SC-02') {
+        at(Date.now() - 20 * DAY);
+        await calibrateTool(db, settings, t.id, new Date(Date.now() - 20 * DAY).toISOString().slice(0, 10), 'Checked against 10 kg test weight');
+      }
+    }
+
+    // A year of refrigerant sent from Lagos to the branches, so the seasonal
+    // forecast has history. Each month's supply is received and sent out, so
+    // it doesn't change the stock on hand.
+    const historyStart = new Date(new Date(start).getFullYear(), new Date(start).getMonth() - 13, 1);
+    for (let m = new Date(historyStart); m.getTime() < Date.now(); m = new Date(m.getFullYear(), m.getMonth() + 1, 1)) {
+      const monthsBack = (Date.now() - m.getTime()) / (30.44 * DAY);
+      const growth = 1 - Math.min(0.15, monthsBack * 0.01);
+      for (const [sku, base] of Object.entries(MONTHLY_SUPPLY)) {
+        const item = bySku.get(sku);
+        if (!item) continue;
+        const qty = Number((base * DEFAULT_SEASON[m.getMonth()] * growth * (0.9 + r2() * 0.2)).toFixed(1));
+        const when = m.getTime() + (8 + r2() * 12) * DAY;
+        if (when > Date.now() - DAY) continue;
+        at(when - DAY);
+        await receiveStock(db, settings, item.id, qty, `Demo GRN ${m.toISOString().slice(0, 7)}`);
+        at(when);
+        await recordMovement(db, {
+          itemId: item.id,
+          kind: 'Transfer',
+          qty: -qty,
+          branch: pick2(branches.slice(1)),
+          reference: 'Monthly branch supply',
+          by: settings.currentUser,
+          byEmail: settings.currentUserEmail,
+        });
+      }
     }
 
     // Stock
@@ -473,6 +591,29 @@ export async function loadDemoData(db: ServiceDB, settings: AppSettings, days = 
 
     // A leaking unit that is only topped up comes back: repeat charging.
     const repeatUnit: { customer?: (typeof customers)[number]; unit?: Equipment } = {};
+    const stuckReturn = { done: false };
+
+    // Where the leak was, and the power conditions the technician found.
+    const detailsFor = (jobType: JobType, eq: Equipment, city: string, repeat: boolean | undefined) => {
+      const d: { leakPoints?: LeakPoint[]; supplyVoltage?: number; stabiliser?: 'Yes' | 'No'; powerSource?: PowerSource } = {};
+      if (jobType === 'Leak Repair + Full Recharge' || (jobType === 'Gas Top-up' && (repeat || r2() < 0.5))) {
+        const first = repeat ? 'Flare nut / union' : weighted2(LEAK_WEIGHTS);
+        d.leakPoints = r2() < 0.25 ? [first, weighted2(LEAK_WEIGHTS.filter(([p]) => p !== first))] : [first];
+      }
+      if (eq.category !== 'Gas Cooker' && r2() < 0.85) {
+        const electrical = jobType === 'PCB / Electrical Repair' || jobType === 'Compressor Replacement';
+        d.stabiliser = r2() < (electrical ? 0.75 : 0.35) ? 'No' : 'Yes';
+        const base = CITY_VOLTAGE[city] ?? 220;
+        d.supplyVoltage = Math.round(base + (r2() - 0.5) * 30 - (electrical && d.stabiliser === 'No' ? 12 : 0));
+        d.powerSource = weighted2<PowerSource>([
+          ['Grid (PHCN / DisCo)', 12],
+          ['Generator', electrical ? 7 : 4],
+          ['Mixed', 2],
+          ['Inverter / solar', 1],
+        ]);
+      }
+      return d;
+    };
 
     for (const [n, plan] of plans.entries()) {
       const sc = SCENARIOS[plan.key];
@@ -486,10 +627,14 @@ export async function loadDemoData(db: ServiceDB, settings: AppSettings, days = 
         eq = repeatUnit.unit!;
       } else {
         const u = UNITS[pick(sc.units)];
+        // Serial numbers carry a production batch; one in-house batch fails early.
+        const batch = pick2(['24A', '24B', '25A', '25C']);
+        const earlyBatch = batch === '25C' && settings.brands.some((b) => b.inHouse && b.name === u.brand);
+        const ageDays = whole(30, 900);
         eq = {
           ...u,
-          serialNo: `${u.brand.slice(0, 2).toUpperCase()}${u.model.replace(/[^A-Z0-9]/gi, '').slice(0, 4).toUpperCase()}-${serial++}`,
-          purchaseDate: new Date(start - whole(30, 900) * DAY).toISOString().slice(0, 10),
+          serialNo: `${u.brand.slice(0, 2).toUpperCase()}${batch}-${u.model.replace(/[^A-Z0-9]/gi, '').slice(0, 4).toUpperCase()}-${serial++}`,
+          purchaseDate: new Date(start - (earlyBatch ? 10 + (ageDays % 120) : ageDays) * DAY).toISOString().slice(0, 10),
           warranty: 'Unknown',
         };
         cust.units.push(eq);
@@ -560,6 +705,7 @@ export async function loadDemoData(db: ServiceDB, settings: AppSettings, days = 
         pressureTested: sc.pressureTest,
         flushedPipeM: sc.flushM,
         recoveredG: sc.recoveredG,
+        ...detailsFor(sc.job, eq, cust.data.city ?? '', reuse),
       };
       await updateJobDetails(db, settings, id, job);
       const c = (await db.complaints.get(id)) as Complaint;
@@ -673,9 +819,54 @@ export async function loadDemoData(db: ServiceDB, settings: AppSettings, days = 
       await setStatus(db, settings, id, 'Resolved');
       if (stage === 'Resolved') continue;
 
+      // The old part comes back to Lagos; how far it has got depends on how long ago the job was.
+      const spareUsed = (sc.spares ?? []).map((sku) => bySku.get(sku)).find((p) => p && p.type === 'Spare');
+      if (spareUsed) {
+        at(done);
+        const rid = await createReturn(db, settings, { complaintId: id, itemId: spareUsed.id, partName: spareUsed.name, stage: 'With technician' });
+        const age = (Date.now() - done) / DAY;
+        const inHouseBrand = settings.brands.some((b) => b.inHouse && b.name === eq.brand);
+        if (age > 3 && !(age > 15 && !stuckReturn.done && cust.branch !== branches[0])) {
+          at(done + 2 * DAY);
+          if (cust.branch === branches[0]) await advanceReturn(db, settings, rid, 'Received in Lagos');
+          else {
+            await advanceReturn(db, settings, rid, 'In transit to Lagos', { waybill: `GIGL-${whole(100000, 999999)}`, carrier: 'GIG Logistics' });
+            if (age > 8) {
+              at(done + 5 * DAY);
+              await advanceReturn(db, settings, rid, 'Received in Lagos');
+            }
+          }
+          if (age > 25 && (await db.partReturns.get(rid))!.stage === 'Received in Lagos') {
+            at(done + 20 * DAY);
+            if (inHouseBrand) await advanceReturn(db, settings, rid, 'Scrapped', { note: 'In-house brand: logged for the factory report, part scrapped' });
+            else await advanceReturn(db, settings, rid, 'Sent to principal', { claimRef: `${eq.brand.toUpperCase()}-WC-${whole(1000, 9999)}` });
+          }
+        } else if (age > 15 && cust.branch !== branches[0]) {
+          // One part has been sitting at the branch for over two weeks.
+          stuckReturn.done = true;
+          at(done + DAY);
+          await advanceReturn(db, settings, rid, 'At branch');
+        }
+      }
+
       at(done + between(2, 30) * HOUR);
       const rating = (r() < 0.7 ? 5 : r() < 0.7 ? 4 : r() < 0.6 ? 3 : 2) as 2 | 3 | 4 | 5;
-      await updateJobDetails(db, settings, id, { customerFeedback: rating });
+      if (r2() < 0.45) {
+        // Rated by the customer through the link in the completion message.
+        const comment = r2() < 0.6 ? pick2(CUSTOMER_COMMENTS[rating]) : undefined;
+        await db.complaints.update(id, { customerFeedback: rating, feedbackVia: 'customer', feedbackComment: comment, feedbackAt: new Date(clock.t).toISOString() });
+        await db.logs.add({
+          id: newId(),
+          complaintId: id,
+          at: new Date(clock.t).toISOString(),
+          kind: 'customer',
+          by: 'Customer',
+          outcome: rating >= 4 ? 'Customer satisfied' : 'Customer not satisfied',
+          text: `Customer rated the service ${rating}/5 through the feedback link${comment ? `: “${comment}”` : ''}`,
+        });
+      } else {
+        await updateJobDetails(db, settings, id, { customerFeedback: rating });
+      }
       await logCustomerContact(
         db,
         settings,

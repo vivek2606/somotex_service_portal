@@ -9,10 +9,13 @@ import type {
   ConsumptionAlert,
   Customer,
   InventoryItem,
+  PartReturn,
   Setting,
   StockMovement,
   SyncMeta,
   Technician,
+  Tool,
+  ToolMove,
 } from './types';
 
 type Synced<T> = T & SyncMeta;
@@ -26,15 +29,18 @@ export const SYNCED_TABLES = [
   'complaints',
   'cylinders',
   'requests',
+  'tools',
+  'partReturns',
   'movements',
   'cylinderMoves',
+  'toolMoves',
   'logs',
   'alerts',
 ] as const;
 export type SyncedTable = (typeof SYNCED_TABLES)[number];
 
 /** Rows that are never changed after creation. */
-export const APPEND_ONLY: SyncedTable[] = ['movements', 'logs'];
+export const APPEND_ONLY: SyncedTable[] = ['movements', 'logs', 'toolMoves'];
 
 /** Fields kept only on this device (derived locally). */
 export const LOCAL_FIELDS: Partial<Record<SyncedTable, string[]>> = { items: ['stock'] };
@@ -56,6 +62,9 @@ export class ServiceDB extends Dexie {
   cylinders!: EntityTable<Synced<Cylinder>, 'id'>;
   cylinderMoves!: EntityTable<Synced<CylinderMove>, 'id'>;
   requests!: EntityTable<Synced<BranchRequest>, 'id'>;
+  tools!: EntityTable<Synced<Tool>, 'id'>;
+  toolMoves!: EntityTable<Synced<ToolMove>, 'id'>;
+  partReturns!: EntityTable<Synced<PartReturn>, 'id'>;
   /** Accounts for local (single-device) mode only. */
   users!: EntityTable<User, 'id'>;
   /** Sync cursors and other device-local state. */
@@ -82,6 +91,11 @@ export class ServiceDB extends Dexie {
       cylinders: 'id, tag, itemId, status, _dirty',
       cylinderMoves: 'id, cylinderId, itemId, complaintId, outAt, inAt, _dirty',
       requests: 'id, ref, branch, status, complaintId, requestedAt, _dirty',
+    });
+    this.version(3).stores({
+      tools: 'id, tag, kind, branch, status, technicianId, calibrationDue, _dirty',
+      toolMoves: 'id, toolId, at, technicianId, _dirty',
+      partReturns: 'id, ref, complaintId, stage, branch, brand, createdAt, _dirty',
     });
     markLocalChanges(this);
   }

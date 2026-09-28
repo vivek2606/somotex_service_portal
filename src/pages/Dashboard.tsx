@@ -5,6 +5,9 @@ import { fmtDuration, fmtMoney, fmtNum, Loading, SeverityBadge, StatusBadge } fr
 import { db } from '../db/db';
 import { gasJobStats, isOpen, OPEN_STATUSES } from '../db/service';
 import { isMissedVisit, localDay } from '../db/visits';
+import { EscalationCard } from '../components/Escalations';
+import { calibrationState, isToolOverdue } from '../db/tools';
+import { hasReachedLagos, isReturnLate } from '../db/returns';
 
 export default function Dashboard() {
   const settings = useSettings();
@@ -33,6 +36,16 @@ export default function Dashboard() {
       missedVisits: open.filter((c) => isMissedVisit(c, now)).length,
       requestsWaiting: await db.requests.where('status').anyOf('Requested', 'Approved').count(),
       cylindersOut: await db.cylinders.where('status').equals('Out').count(),
+      ...(await (async () => {
+        const tools = (await db.tools.toArray()).filter((t) => t.status !== 'Retired');
+        const returns = await db.partReturns.toArray();
+        return {
+          toolsUncalibrated: tools.filter((t) => calibrationState(t, now) === 'overdue').length,
+          toolsOutLong: tools.filter((t) => isToolOverdue(t, now)).length,
+          returnsOpen: returns.filter((r) => !hasReachedLagos(r)).length,
+          returnsLate: returns.filter((r) => isReturnLate(r, now)).length,
+        };
+      })()),
       open,
       overdue: open.filter((c) => c.dueAt < nowIso),
       unassigned: open.filter((c) => !c.technicianId),
@@ -63,6 +76,8 @@ export default function Dashboard() {
         </Link>
       </div>
 
+      <EscalationCard />
+
       <div className="grid kpis" style={{ marginBottom: 14 }}>
         <Link to="/complaints?status=open" className="card kpi">
           <div className="label">Open complaints</div>
@@ -85,6 +100,16 @@ export default function Dashboard() {
           <div className="label">Branch requests to action</div>
           <div className="value">{data.requestsWaiting}</div>
           <div className="small muted">{data.cylindersOut} cylinder(s) out</div>
+        </Link>
+        <Link to="/returns" className={`card kpi ${data.returnsLate ? 'bad' : ''}`}>
+          <div className="label">Defective parts to Lagos</div>
+          <div className="value">{data.returnsOpen}</div>
+          <div className="small muted">{data.returnsLate ? `${data.returnsLate} late` : 'none late'}</div>
+        </Link>
+        <Link to="/tools" className={`card kpi ${data.toolsUncalibrated ? 'bad' : data.toolsOutLong ? 'warn' : ''}`}>
+          <div className="label">Tools needing calibration</div>
+          <div className="value">{data.toolsUncalibrated}</div>
+          <div className="small muted">{data.toolsOutLong} out over a week</div>
         </Link>
         <Link to="/complaints?status=Awaiting Parts" className="card kpi">
           <div className="label">Awaiting parts</div>

@@ -103,6 +103,50 @@ export default function Settings() {
           </div>
 
           <div className="card">
+            <h2>Escalation</h2>
+            <p className="small muted">
+              Late and urgent complaints are listed on the dashboard for the helpdesk to send to the Service Head by WhatsApp or email with one click.
+            </p>
+            <div className="form-grid">
+              <label className="field">
+                Service Head WhatsApp number
+                <input value={s.escalation.phone} inputMode="tel" placeholder="e.g. 0803 000 0000" onChange={(e) => setS({ ...s, escalation: { ...s.escalation, phone: e.target.value } })} />
+              </label>
+              <label className="field">
+                Service Head email
+                <input type="email" value={s.escalation.email} onChange={(e) => setS({ ...s, escalation: { ...s.escalation, email: e.target.value.trim() } })} />
+              </label>
+              <label className="field">
+                Escalate overdue jobs after (hours past target)
+                <input type="number" min="0" value={s.escalation.overdueHours} onChange={(e) => setS({ ...s, escalation: { ...s.escalation, overdueHours: num(e.target.value) } })} />
+              </label>
+              <div className="field">
+                Escalate as soon as logged
+                <div className="row">
+                  {(['Critical', 'High'] as Priority[]).map((p) => (
+                    <label key={p} className="field inline">
+                      <input
+                        type="checkbox"
+                        checked={s.escalation.priorities.includes(p)}
+                        onChange={(e) =>
+                          setS({
+                            ...s,
+                            escalation: {
+                              ...s.escalation,
+                              priorities: e.target.checked ? [...s.escalation.priorities, p] : s.escalation.priorities.filter((x) => x !== p),
+                            },
+                          })
+                        }
+                      />
+                      {p}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="card">
             <h2>Brands</h2>
             <div className="table-wrap">
               <table>
@@ -486,11 +530,33 @@ function AccountTab() {
         <p className="small muted">
           App version {__APP_VERSION__} · {runtime.cloud ? 'shared database' : 'single-device mode'}
         </p>
+        {user.role === 'head' && <DesktopAlerts />}
       </div>
       <div className="card">
         <h2>Change password</h2>
         <ChangePasswordForm user={user} onDone={() => toast('Password changed')} />
       </div>
+    </div>
+  );
+}
+
+/** Lets the Service Head get a desktop notification for new escalations on this computer. */
+function DesktopAlerts() {
+  const supported = typeof Notification !== 'undefined';
+  const [permission, setPermission] = useState(supported ? Notification.permission : 'denied');
+  if (!supported) return null;
+  return (
+    <div style={{ marginTop: 10 }}>
+      <h3>Desktop alerts</h3>
+      {permission === 'granted' ? (
+        <p className="small muted">On. This computer shows a notification when a complaint becomes overdue or urgent while the app is open.</p>
+      ) : permission === 'denied' ? (
+        <p className="small muted">Blocked in the browser. Allow notifications for this site in the browser’s site settings to turn them on.</p>
+      ) : (
+        <button className="sm" onClick={() => void Notification.requestPermission().then(setPermission)}>
+          Turn on desktop alerts for escalations
+        </button>
+      )}
     </div>
   );
 }
@@ -506,6 +572,9 @@ const TABLE_LABEL: Record<SyncedTable, string> = {
   alerts: 'Alert',
   cylinders: 'Cylinder',
   cylinderMoves: 'Cylinder weighing',
+  tools: 'Tool',
+  toolMoves: 'Tool movement',
+  partReturns: 'Part return',
   requests: 'Branch request',
 };
 

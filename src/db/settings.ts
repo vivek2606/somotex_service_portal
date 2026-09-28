@@ -28,8 +28,20 @@ export interface AppSettings {
   norms: ConsumptionNorms;
   /** Warranty periods by brand and product, from the invoice date. */
   warrantyRules: WarrantyRule[];
+  /** Who is alerted about late and urgent complaints, and when. */
+  escalation: EscalationSettings;
   /** Set by the server when demo data is removed, so every device drops its copy. */
   demoPurgedAt?: string;
+}
+
+export interface EscalationSettings {
+  /** Service Head's WhatsApp number and email for escalations. */
+  phone: string;
+  email: string;
+  /** Hours past the target time before an overdue job is escalated (0 = as soon as it is late). */
+  overdueHours: number;
+  /** Priorities escalated as soon as they are logged. */
+  priorities: Priority[];
 }
 
 export const PRODUCT_CATEGORIES: ProductCategory[] = [
@@ -83,6 +95,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   slaHours: { Critical: 24, High: 48, Normal: 72, Low: 120 },
   norms: DEFAULT_NORMS,
   warrantyRules: DEFAULT_WARRANTY_RULES,
+  escalation: { phone: '', email: '', overdueHours: 0, priorities: ['Critical'] },
 };
 
 const KEY = 'app';
@@ -100,6 +113,7 @@ export function mergeSettings(saved: Partial<AppSettings>): AppSettings {
     ...DEFAULT_SETTINGS,
     ...saved,
     slaHours: { ...DEFAULT_SETTINGS.slaHours, ...saved.slaHours },
+    escalation: { ...DEFAULT_SETTINGS.escalation, ...saved.escalation },
     // There is always a general rule to fall back on.
     warrantyRules: saved.warrantyRules?.some((r) => r.brand === 'Any' && r.category === 'Any')
       ? saved.warrantyRules

@@ -8,6 +8,9 @@ import { fmtDateTime, Icon, Loading, ToastProvider } from './components/ui';
 import { ROLE_LABEL, type SessionUser } from './db/auth';
 import { db } from './db/db';
 import { OPEN_STATUSES } from './db/service';
+import { hasReachedLagos } from './db/returns';
+import { publicRoute } from './lib/links';
+import { EscalationNotifier } from './components/Escalations';
 
 // Each page is its own chunk so the first load stays small.
 const Dashboard = lazy(() => import('./pages/Dashboard'));
@@ -30,6 +33,10 @@ const Reports = lazy(() => import('./pages/Reports'));
 const Technicians = lazy(() => import('./pages/Technicians'));
 const Users = lazy(() => import('./pages/Users'));
 const Settings = lazy(() => import('./pages/Settings'));
+const Insights = lazy(() => import('./pages/Insights'));
+const Tools = lazy(() => import('./pages/Tools'));
+const Returns = lazy(() => import('./pages/Returns'));
+const PublicTicket = lazy(() => import('./pages/PublicTicket'));
 
 function useOnline() {
   const [online, setOnline] = useState(navigator.onLine);
@@ -82,6 +89,7 @@ function Shell() {
   const openCount = useLiveQuery(() => db.complaints.where('status').anyOf(OPEN_STATUSES).count(), []);
   // Requests someone at Lagos needs to act on: approve or dispatch.
   const requestCount = useLiveQuery(() => db.requests.where('status').anyOf('Requested', 'Approved').count(), []);
+  const returnCount = useLiveQuery(() => db.partReturns.filter((r) => !hasReachedLagos(r)).count(), []);
   const alertCount = useLiveQuery(
     () => db.alerts.filter((a) => !a.acknowledged && !a.cleared && a.severity !== 'info').count(),
     [],
@@ -94,9 +102,12 @@ function Shell() {
     { to: '/customers', label: 'Customers', icon: 'customers' },
     { to: '/inventory', label: 'Inventory', icon: 'inventory' },
     { to: '/requests', label: 'Branch requests', icon: 'complaints', count: requestCount },
+    { to: '/returns', label: 'Part returns', icon: 'inventory', count: returnCount },
     { to: '/cylinders', label: 'Cylinders', icon: 'inventory' },
+    { to: '/tools', label: 'Tools', icon: 'technicians' },
     { to: '/gas', label: 'Gas efficiency', icon: 'reports' },
     { to: '/alerts', label: 'Alerts', icon: 'alerts', count: alertCount, bad: true },
+    { to: '/insights', label: 'Insights', icon: 'reports' },
     { to: '/reports', label: 'Reports', icon: 'reports' },
     { to: '/technicians', label: 'Technicians', icon: 'technicians' },
     ...(can('manageUsers') ? [{ to: '/users', label: 'Users', icon: 'customers' }] : []),
@@ -163,11 +174,15 @@ function Shell() {
             <Route path="/reports" element={<Reports />} />
             <Route path="/technicians" element={<Technicians />} />
             {can('manageUsers') && <Route path="/users" element={<Users />} />}
+            <Route path="/returns" element={<Returns />} />
+            <Route path="/tools" element={<Tools />} />
+            <Route path="/insights" element={<Insights />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="*" element={<p>Page not found.</p>} />
           </Routes>
         </Suspense>
       </main>
+      <EscalationNotifier />
       <nav className="bottomnav">
         {mobile.map((n) => (
           <NavLink key={n.to} to={n.to} end={n.to === '/' || n.to === '/complaints/new'}>
@@ -184,6 +199,19 @@ function Shell() {
 type Gate = { phase: 'loading' } | { phase: 'setup' } | { phase: 'login' } | { phase: 'in'; user: SessionUser };
 
 export function App() {
+  // Customers open their status and feedback links without signing in.
+  const pub = publicRoute();
+  if (pub) {
+    return (
+      <Suspense fallback={<Loading />}>
+        <PublicTicket kind={pub.kind} token={pub.token} />
+      </Suspense>
+    );
+  }
+  return <StaffApp />;
+}
+
+function StaffApp() {
   const [gate, setGate] = useState<Gate>({ phase: 'loading' });
 
   useEffect(() => {

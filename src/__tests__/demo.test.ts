@@ -43,6 +43,21 @@ describe('demo data', () => {
     const reqStatuses = new Set((await db.requests.toArray()).map((r) => r.status));
     expect(reqStatuses.has('Received')).toBe(true);
     expect((await db.complaints.toArray()).filter((c) => c.visitDate).length).toBeGreaterThan(30);
+    // Tools with one scale overdue for calibration; part returns at several stages.
+    const tools = await db.tools.toArray();
+    expect(tools.length).toBeGreaterThanOrEqual(15);
+    expect(tools.some((t) => t.kind === 'Charging scale' && t.calibrationDue! < new Date().toISOString().slice(0, 10))).toBe(true);
+    expect(tools.some((t) => t.status === 'Issued')).toBe(true);
+    const stages = new Set((await db.partReturns.toArray()).map((r) => r.stage));
+    expect(stages.size).toBeGreaterThanOrEqual(2);
+    // Leak points, power readings and customer ratings are recorded for the insights.
+    expect(complaints.some((c) => c.leakPoints?.length)).toBe(true);
+    expect(complaints.filter((c) => c.supplyVoltage).length).toBeGreaterThan(15);
+    const final = await db.complaints.toArray();
+    expect(final.some((c) => c.feedbackVia === 'customer')).toBe(true);
+    // A year of refrigerant supply history for the forecast.
+    const transfers = await db.movements.where('kind').equals('Transfer').toArray();
+    expect(Math.min(...transfers.map((m) => Date.parse(m.at)))).toBeLessThan(Date.now() - 365 * 86400000);
     expect(await hasDemoData(db)).toBe(true);
     await expect(loadDemoData(db, settings)).rejects.toThrow(/already loaded/);
   });
@@ -61,6 +76,9 @@ describe('demo data', () => {
     expect(await db.movements.count()).toBe(0);
     expect(await db.cylinders.count()).toBe(0);
     expect(await db.requests.count()).toBe(0);
+    expect(await db.tools.count()).toBe(0);
+    expect(await db.toolMoves.count()).toBe(0);
+    expect(await db.partReturns.count()).toBe(0);
     for (const item of await db.items.toArray()) expect(item.stock).toBe(0);
     expect(await db.items.count()).toBeGreaterThan(20); // catalogue stays
   });

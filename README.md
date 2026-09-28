@@ -8,6 +8,14 @@ An installable web app (PWA) for the service centre. It covers:
 - **Inventory.** Spares, refrigerants, brazing gases, nitrogen and consumables, with a complete ledger, stock-sheet import and a reorder list.
 - **Gas budgets.** Every job gets a budget for refrigerant, brazing gas, nitrogen and flushing solvent. Over-use is flagged, and a Gas Efficiency page shows where gas is being lost.
 - **Printable job cards** for technicians, and **WhatsApp / SMS updates** to customers.
+- **Customer links.** The customer follows their complaint's progress and rates the service from a link in the WhatsApp message.
+- **Insights** for management, such as:
+  - where gas leaks
+  - which in-house models and batches fail
+  - the effect of bad power
+  - how much refrigerant to stock
+  - branch, technician and customer comparisons
+- **Tools and part returns.** Tools are tracked with their calibration dates, and defective parts are followed back to Lagos for warranty claims.
 
 Brands include Midea (commercial AC / VRF), Sharp, Beko, AUX and Chigo, plus the in-house brands **Tamashi** and **Bruhm**.
 
@@ -54,7 +62,7 @@ On Netlify it's the same: import the repository, then add both variables under *
    - reviews **Settings** (company name, branches, currency, dialling code, target times, gas norms)
 4. On each computer, open the address in Chrome or Edge and choose **Install app**, so it opens like a normal program.
 
-**Trying it out first:** the Service Head can use **Settings → Data & backup → Load demo data**. It adds about two months of sample customers, complaints, stock and gas use, so the reports and alerts have something to show. **Remove demo data** takes it all out again, on every computer, and leaves anything real untouched. Remove it before real use; ticket numbers then restart from 1.
+**Trying it out first:** the Service Head can use **Settings → Data & backup → Load demo data**. It adds about two months of sample customers, complaints, stock, gas use, tools and part returns, plus a year of refrigerant supply history, so the reports, insights and alerts have something to show. **Remove demo data** takes it all out again, on every computer, and leaves anything real untouched. Remove it before real use; ticket numbers then restart from 1.
 
 **Forgotten password:** the Service Head uses **Users → Reset password** and gives the person the new temporary password.
 
@@ -134,6 +142,57 @@ Refills and retiring a cylinder are recorded too.
 For 1, 1.5 and 2 HP wall splits (9,000, 12,000 and 18,000 BTU/h), the app uses a table of typical factory charges when the nameplate charge isn't known. The table covers R-32, R-410A and R-22, inverter and non-inverter.
 - The complaint form shows the typical figure and can fill it in.
 - The figures are **tentative**. Replace them with the charges on your units' labels under **Settings → Gas norms**.
+
+### Customer status and rating links
+
+In shared mode, every complaint gets a private link. The **Send customer update** messages include it:
+- **Registered, assigned, awaiting parts:** the customer sees the progress of their complaint, the technician's first name and the booked visit. They see nothing else: no phone numbers, addresses or internal notes.
+- **Job completed:** the customer rates the service from 1 to 5 stars and can add a comment. The rating appears on the complaint and in the reports, marked "from the customer". Staff can't change it afterwards.
+
+"Copy tracking link" and "Copy rating link" on the complaint page give the links on their own, for example to paste into an SMS.
+
+### Escalation
+
+Complaints that are past their target time, or are logged as Critical, appear at the top of the dashboard under **Escalate to the Service Head**.
+- One click sends them to the Service Head by WhatsApp or email, as a single message that includes links to each complaint. Each complaint is escalated once.
+- Set the Service Head's number and email, the delay and which priorities to escalate under **Settings → General → Escalation**.
+- The Service Head can also turn on **desktop alerts** under **Settings → My account**.
+
+The app opens WhatsApp or the mail program with the message ready; someone still clicks Send. Fully automatic sending needs a messaging service (for example the WhatsApp Business API or an email service), which can be added later.
+
+### Tools
+
+Register each vacuum pump, gauge set, charging scale, recovery machine and brazing kit under **Tools**, with its tag and calibration interval.
+- **Issue** a tool to a technician and mark it **returned**. Tools out for more than 7 days are flagged.
+- **Calibration:** record each calibration; the next due date follows from the interval. A tool overdue for calibration needs a reason to be issued.
+- **Charging scales:** a scale overdue for calibration is highlighted, because every gas weight taken with it is suspect.
+- **Repairs and retirement** are recorded in each tool's history.
+
+### Defective part returns
+
+When a part is replaced under warranty, register the old part on the complaint (**Defective part return**). It is then followed through these stages:
+1. At site
+2. With the technician
+3. At the branch
+4. In transit to Lagos, with the waybill
+5. Received in Lagos
+6. Sent to the principal, with the claim/RMA number (or scrapped, with a reason)
+
+Parts not in Lagos within 14 days are flagged. The **Part returns** page lists what is ready to claim from each brand.
+
+### Insights
+
+The **Insights** page turns the complaint history into management information:
+
+| Insight | What it shows |
+| --- | --- |
+| Gas leak hotspots | Leak repairs and top-ups by where the leak was (flare nut, coil, service valve…), by model, and units that keep losing gas. Record "Leak found at" in Job & closure. |
+| In-house brand quality | Failures of Tamashi and Bruhm (or any brand) by model, part replaced and serial-number batch, with months from sale to first failure and failures within 6 months. Evidence for the factory or supplier. |
+| Power-related failures | PCB, power supply and compressor failures by area. Shows the effect of stabilisers, bad voltage and generator use, and lists in-warranty failures with power conditions outside the warranty. Record the voltage, stabiliser and power source in Job & closure. |
+| Refrigerant forecast | Refrigerant leaving Lagos each month, and the next three months' likely need and what to order. With a year of history it uses last year's months and the recent trend; before that, the recent rate and the typical Nigerian season (peak February to May). |
+| Branch scorecard | For each branch: time to resolve, share within target, first-time fix, repeat visits, gas used against budget, customer rating and material cost per job. |
+| Technician gas ranking | Refrigerant used against each job's budget. The budget allows for unit size, job type and pipe length, so the comparison is fair. |
+| Repeat customers | Customers with many complaints, flagging units that keep failing (check the installation), failures soon after installation, and AMC candidates. |
 
 ### Warranty
 

@@ -58,7 +58,7 @@ do $$
 declare
   t text;
 begin
-  foreach t in array array['settings', 'technicians', 'items', 'customers', 'complaints', 'movements', 'logs', 'alerts', 'cylinders', 'cylinder_moves', 'requests'] loop
+  foreach t in array array['settings', 'technicians', 'items', 'customers', 'complaints', 'movements', 'logs', 'alerts', 'cylinders', 'cylinder_moves', 'requests', 'tools', 'tool_moves', 'part_returns'] loop
     execute format(
       'create table if not exists public.%I (
          id text primary key,
@@ -112,12 +112,12 @@ create policy alerts_update on public.alerts for update
   using (public.is_staff() and (public.is_head() or coalesce((data ->> 'acknowledged')::boolean, false) = false))
   with check (public.is_staff() and (public.is_head() or coalesce((data ->> 'acknowledged')::boolean, false) = false));
 
--- Gas cylinders, their weighings and branch requests: any staff member.
+-- Gas cylinders, their weighings, branch requests, tools and part returns: any staff member.
 do $$
 declare
   t text;
 begin
-  foreach t in array array['cylinders', 'cylinder_moves', 'requests'] loop
+  foreach t in array array['cylinders', 'cylinder_moves', 'requests', 'tools', 'part_returns'] loop
     execute format('drop policy if exists %I on public.%I', t || '_insert', t);
     execute format('create policy %I on public.%I for insert with check (public.is_staff())', t || '_insert', t);
     execute format('drop policy if exists %I on public.%I', t || '_update', t);
@@ -125,6 +125,10 @@ begin
   end loop;
 end;
 $$;
+
+-- Tool check-outs, returns and calibrations are append-only.
+drop policy if exists tool_moves_insert on public.tool_moves;
+create policy tool_moves_insert on public.tool_moves for insert with check (public.is_staff());
 
 -- Only the Service Head approves or rejects a branch request.
 create or replace function public.guard_request_decision() returns trigger
@@ -160,6 +164,7 @@ $$;
 create unique index if not exists items_sku_key on public.items ((data ->> 'sku'));
 create unique index if not exists complaints_ticket_key on public.complaints ((data ->> 'ticketNo'));
 create index if not exists movements_item_idx on public.movements ((data ->> 'itemId'));
+create index if not exists complaints_public_token_idx on public.complaints ((data ->> 'publicToken'));
 
 -- ---------------------------------------------------------- ticket numbers
 
@@ -219,6 +224,13 @@ begin
   else
     -- Keep the original author whatever a device sends.
     new.data := new.data || jsonb_build_object('loggedByEmail', old.data -> 'loggedByEmail', 'loggedBy', old.data -> 'loggedBy');
+    -- A rating the customer gave through their link can't be changed by staff.
+    if old.data ->> 'feedbackVia' = 'customer' then
+      new.data := (new.data - 'customerFeedback' - 'feedbackComment' - 'feedbackAt' - 'feedbackVia')
+        || jsonb_strip_nulls(jsonb_build_object(
+          'customerFeedback', old.data -> 'customerFeedback', 'feedbackComment', old.data -> 'feedbackComment',
+          'feedbackAt', old.data -> 'feedbackAt', 'feedbackVia', old.data -> 'feedbackVia'));
+    end if;
     if new.data ->> 'status' = 'Closed' and coalesce(old.data ->> 'status', '') <> 'Closed' then
       new.data := new.data || jsonb_build_object('closedByEmail', actor_email, 'closedBy', actor_name);
     elsif new.data ->> 'status' = 'Closed' then
@@ -256,6 +268,10 @@ create trigger logs_actor before insert on public.logs
 
 drop trigger if exists movements_actor on public.movements;
 create trigger movements_actor before insert on public.movements
+  for each row execute function public.stamp_log_actor();
+
+drop trigger if exists tool_moves_actor on public.tool_moves;
+create trigger tool_moves_actor before insert on public.tool_moves
   for each row execute function public.stamp_log_actor();
 
 drop trigger if exists complaints_ticket on public.complaints;
@@ -430,7 +446,7 @@ begin
   if not public.is_head() then
     raise exception 'Only the Service Head can remove demo data' using errcode = '42501';
   end if;
-  foreach t in array array['alerts', 'logs', 'movements', 'cylinder_moves', 'cylinders', 'requests', 'complaints', 'customers', 'technicians'] loop
+  foreach t in array array['alerts', 'logs', 'movements', 'cylinder_moves', 'cylinders', 'requests', 'part_returns', 'tool_moves', 'tools', 'complaints', 'customers', 'technicians'] loop
     execute format('delete from public.%I where id like %L', t, 'demo-%');
     get diagnostics n = row_count;
     total := total + n;
@@ -447,6 +463,86 @@ begin
   return total;
 end;
 $$;
+
+-- ------------------------------------------------------ customer links
+-- A customer opens their complaint's progress page, and rates the service,
+-- from a link with a secret token. They can see only that one complaint,
+-- and only what is shown here: no phone numbers, addresses or notes.
+
+create or replace function public.public_ticket(p_token text) returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  c jsonb;
+  tech text;
+  company text;
+begin
+  if p_token is null or p_token !~ '^[0-9a-f]{24,64}$' then
+    return null;
+  end if;
+  select data into c from public.complaints where data ->> 'publicToken' = p_token;
+  if c is null then
+    return null;
+  end if;
+  select split_part(trim(data ->> 'name'), ' ', 1) into tech from public.technicians where id = c ->> 'technicianId';
+  select data -> 'value' ->> 'companyName' into company from public.settings where id = 'app';
+  return jsonb_strip_nulls(jsonb_build_object(
+    'company', coalesce(nullif(company, ''), 'Somotex'),
+    'ticketNo', c ->> 'ticketNo',
+    'status', c ->> 'status',
+    'createdAt', c ->> 'createdAt',
+    'product', trim(concat_ws(' ', c -> 'equipment' ->> 'brand', c -> 'equipment' ->> 'category')),
+    'complaintType', c ->> 'complaintType',
+    'visitDate', c ->> 'visitDate',
+    'visitSlot', c ->> 'visitSlot',
+    'technician', tech,
+    'resolvedAt', c ->> 'resolvedAt',
+    'closedAt', c ->> 'closedAt',
+    'rating', c -> 'customerFeedback',
+    'ratedByCustomer', coalesce(c ->> 'feedbackVia', '') = 'customer'));
+end;
+$$;
+
+create or replace function public.submit_feedback(p_token text, p_rating integer, p_comment text) returns void
+language plpgsql security definer set search_path = public as $$
+declare
+  v_id text;
+  c jsonb;
+  note text := nullif(left(trim(coalesce(p_comment, '')), 1000), '');
+  stamp text := to_char(now() at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"');
+begin
+  if p_token is null or p_token !~ '^[0-9a-f]{24,64}$' then
+    raise exception 'This link is not valid' using errcode = 'P0001';
+  end if;
+  if p_rating is null or p_rating < 1 or p_rating > 5 then
+    raise exception 'Choose a rating from 1 to 5' using errcode = 'P0001';
+  end if;
+  select id, data into v_id, c from public.complaints where data ->> 'publicToken' = p_token for update;
+  if v_id is null then
+    raise exception 'This link is not valid' using errcode = 'P0001';
+  end if;
+  if coalesce(c ->> 'status', '') not in ('Resolved', 'Closed') then
+    raise exception 'The service can be rated once the job is complete' using errcode = 'P0001';
+  end if;
+  if coalesce(c ->> 'feedbackVia', '') = 'customer' then
+    raise exception 'Your rating has already been recorded' using errcode = 'P0001';
+  end if;
+  update public.complaints
+    set data = data || jsonb_strip_nulls(jsonb_build_object(
+      'customerFeedback', p_rating, 'feedbackComment', note, 'feedbackAt', stamp, 'feedbackVia', 'customer', 'updatedAt', stamp))
+    where id = v_id;
+  insert into public.logs (id, data) values (
+    case when v_id like 'demo-%' then 'demo-' else '' end || gen_random_uuid()::text,
+    jsonb_build_object(
+      'complaintId', v_id, 'at', stamp, 'kind', 'customer', 'by', 'Customer',
+      'outcome', case when p_rating >= 4 then 'Customer satisfied' else 'Customer not satisfied' end,
+      'text', 'Customer rated the service ' || p_rating || '/5 through the feedback link' || coalesce(': “' || note || '”', '')));
+end;
+$$;
+
+revoke all on function public.public_ticket(text) from public;
+revoke all on function public.submit_feedback(text, integer, text) from public;
+grant execute on function public.public_ticket(text) to anon, authenticated;
+grant execute on function public.submit_feedback(text, integer, text) to anon, authenticated;
 
 revoke all on function public.purge_demo_data() from public;
 grant execute on function public.purge_demo_data() to authenticated;
@@ -469,7 +565,7 @@ declare
   t text;
 begin
   if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
-    foreach t in array array['settings', 'technicians', 'items', 'customers', 'complaints', 'movements', 'logs', 'alerts', 'profiles', 'cylinders', 'cylinder_moves', 'requests'] loop
+    foreach t in array array['settings', 'technicians', 'items', 'customers', 'complaints', 'movements', 'logs', 'alerts', 'profiles', 'cylinders', 'cylinder_moves', 'requests', 'tools', 'tool_moves', 'part_returns'] loop
       if not exists (
         select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t
       ) then

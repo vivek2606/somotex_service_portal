@@ -250,3 +250,26 @@ blockquote { margin: 0; padding: 8px 12px; border-left: 3px solid var(--ok); bac
   body { background: #fff; color: #000; }
   .card { box-shadow: none; border-color: #999; break-inside: avoid; }
 }
+
+/* Monthly column chart (Insights → refrigerant forecast). */
+.colchart { display: flex; align-items: flex-end; gap: 3px; height: 120px; margin-top: 12px; }
+.colchart > div { flex: 1; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; min-width: 0; }
+.colchart > div > span { display: block; width: 100%; min-height: 1px; background: var(--primary); border-radius: 3px 3px 0 0; }
+.colchart > div.future > span { background: repeating-linear-gradient(45deg, var(--warn), var(--warn) 4px, var(--warn-soft) 4px, var(--warn-soft) 8px); }
+.colchart small { font-size: 0.65rem; color: var(--muted); margin-top: 2px; }
+
+/* Customer-facing pages (ticket status and feedback) */
+.public { max-width: 520px; margin: 0 auto; padding: 24px 16px 40px; }
+.public .brand { justify-content: center; }
+.stars { display: flex; gap: 6px; justify-content: center; margin: 12px 0; }
+.stars button { font-size: 1.8rem; line-height: 1; padding: 6px 10px; background: none; border: 1px solid var(--border); color: var(--muted); }
+.stars button.on { color: #e0a100; border-color: #e0a100; background: var(--warn-soft); }
+.steps { list-style: none; padding: 0; margin: 12px 0 0; }
+.steps li { padding: 6px 0 6px 26px; position: relative; color: var(--muted); }
+.steps li::before { content: ''; position: absolute; left: 6px; top: 12px; width: 10px; height: 10px; border-radius: 50%; background: var(--border); }
+.steps li.done { color: var(--text); }
+.steps li.done::before { background: var(--ok); }
+.steps li.current { color: var(--text); font-weight: 600; }
+.steps li.current::before { background: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
+.grid > .card + .card { margin-top: 0; }
+.colchart > div.partial > span { opacity: 0.45; }
